@@ -35,7 +35,7 @@ export interface AuditLogJob {
 export interface ImportJob {
     orgId: string;
     userId: string;
-    entityType: string;
+    entityType: 'leads' | 'accounts' | 'contacts' | 'opportunities';
     filePath: string;
     options: {
         fieldMapping?: Record<string, string>;
@@ -43,15 +43,18 @@ export interface ImportJob {
         updateExisting?: boolean;
         batchSize?: number;
     };
+    callbackUrl?: string; // Webhook to notify when done
 }
 
 export interface ExportJob {
     orgId: string;
     userId: string;
+    userRole: 'ADMIN' | 'MANAGER' | 'REP' | 'READ_ONLY';
     entityType: string;
     filters?: Record<string, unknown>;
     columns?: string[];
     format: 'csv' | 'json';
+    callbackUrl?: string; // Webhook to notify when done
 }
 
 export interface EmailJob {

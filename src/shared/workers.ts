@@ -9,6 +9,9 @@ import {
     EmailJob,
     SessionCleanupJob,
 } from './queue';
+import { importService } from '../services/import.service';
+import { exportService } from '../services/export.service';
+import * as fs from 'fs';
 
 // ============================================
 // UTILITY: Create worker factory
@@ -16,13 +19,14 @@ import {
 
 function createWorker<T>(
     name: string,
-    processor: (job: Job<T>) => Promise<void>
+    processor: (job: Job<T>) => Promise<void>,
+    options?: { concurrency?: number }
 ): Worker<T> {
     const worker = new Worker<T>(name, processor, {
         connection: {
             maxRetriesPerRequest: null,
         },
-        concurrency: 5, // Process 5 jobs concurrently
+        concurrency: options?.concurrency || 5,
     });
 
     worker.on('completed', (job) => {
@@ -84,30 +88,96 @@ async function processSessionCleanupJob(job: Job<SessionCleanupJob>): Promise<vo
 }
 
 // ============================================
-// IMPORT WORKER (Placeholder - Import logic would move here)
+// IMPORT WORKER
 // ============================================
 
 async function processImportJob(job: Job<ImportJob>): Promise<void> {
-    const { orgId, entityType } = job.data;
-    logger.info(`Processing import job ${job.id} for org ${orgId}, entity ${entityType}`);
+    const { orgId, userId, entityType, filePath, options, callbackUrl } = job.data;
 
-    // TODO: Move import logic from import.service.ts to here
-    // This would process the file in the background
+    logger.info(`Processing import job ${job.id} for org ${orgId}, entity ${entityType}, file: ${filePath}`);
 
-    // For now, we'll just log - the actual import is still sync
-    logger.info(`Import job ${job.id} processed (sync mode)`);
+    try {
+        await job.updateProgress(10);
+
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`File not found: ${filePath}`);
+        }
+
+        const fileBuffer = fs.readFileSync(filePath);
+        await job.updateProgress(30);
+
+        let result;
+        switch (entityType) {
+            case 'leads':
+                result = await importService.importLeads(orgId, userId, fileBuffer, options);
+                break;
+            case 'accounts':
+                result = await importService.importAccounts(orgId, userId, fileBuffer, options);
+                break;
+            case 'contacts':
+                result = await importService.importContacts(orgId, userId, fileBuffer, options);
+                break;
+            case 'opportunities':
+                result = await importService.importOpportunities(orgId, userId, fileBuffer, options);
+                break;
+            default:
+                throw new Error(`Unknown entity type: ${entityType}`);
+        }
+
+        await job.updateProgress(90);
+
+        if (callbackUrl) {
+            logger.info(`Would notify callback URL: ${callbackUrl}`);
+        }
+
+        try {
+            fs.unlinkSync(filePath);
+        } catch {
+            logger.warn(`Failed to delete uploaded file: ${filePath}`);
+        }
+
+        await job.updateProgress(100);
+        logger.info(`Import job ${job.id} completed: ${result.successCount} success, ${result.failureCount} failed`);
+
+    } catch (error) {
+        logger.error(`Import job ${job.id} failed:`, error);
+        throw error;
+    }
 }
 
 // ============================================
-// EXPORT WORKER (Placeholder)
+// EXPORT WORKER
 // ============================================
 
 async function processExportJob(job: Job<ExportJob>): Promise<void> {
-    const { orgId, entityType } = job.data;
+    const { orgId, userId, userRole, entityType, filters, columns, callbackUrl } = job.data;
+
     logger.info(`Processing export job ${job.id} for org ${orgId}, entity ${entityType}`);
 
-    // TODO: Implement export processing in background
-    logger.info(`Export job ${job.id} processed (sync mode)`);
+    try {
+        await job.updateProgress(10);
+
+        const result = await exportService.exportRecords(
+            entityType as 'leads' | 'accounts' | 'contacts' | 'opportunities',
+            orgId,
+            userId,
+            userRole,
+            { filters, columns }
+        );
+
+        await job.updateProgress(80);
+
+        if (callbackUrl) {
+            logger.info(`Would notify callback URL: ${callbackUrl}`);
+        }
+
+        await job.updateProgress(100);
+        logger.info(`Export job ${job.id} completed: ${result.total} records exported`);
+
+    } catch (error) {
+        logger.error(`Export job ${job.id} failed:`, error);
+        throw error;
+    }
 }
 
 // ============================================
@@ -117,9 +187,6 @@ async function processExportJob(job: Job<ExportJob>): Promise<void> {
 async function processEmailJob(job: Job<EmailJob>): Promise<void> {
     const { to, subject } = job.data;
     logger.info(`Processing email job ${job.id} to ${to}: ${subject}`);
-
-    // TODO: Integrate with email provider (SendGrid, AWS SES, etc.)
-    // For now, just log
     logger.info(`Email job ${job.id}: Would send to ${to}`);
 }
 
@@ -130,31 +197,11 @@ async function processEmailJob(job: Job<EmailJob>): Promise<void> {
 const workers: Worker[] = [];
 
 export function startWorkers(): void {
-    // Audit Log Worker (high priority - many jobs)
-    workers.push(
-        createWorker(QUEUE_NAMES.AUDIT_LOG, processAuditLogJob)
-    );
-
-    // Session Cleanup Worker
-    workers.push(
-        createWorker(QUEUE_NAMES.SESSION_CLEANUP, processSessionCleanupJob)
-    );
-
-    // Import Worker
-    workers.push(
-        createWorker(QUEUE_NAMES.IMPORT, processImportJob)
-    );
-
-    // Export Worker
-    workers.push(
-        createWorker(QUEUE_NAMES.EXPORT, processExportJob)
-    );
-
-    // Email Worker
-    workers.push(
-        createWorker(QUEUE_NAMES.EMAIL, processEmailJob)
-    );
-
+    workers.push(createWorker(QUEUE_NAMES.AUDIT_LOG, processAuditLogJob));
+    workers.push(createWorker(QUEUE_NAMES.SESSION_CLEANUP, processSessionCleanupJob, { concurrency: 1 }));
+    workers.push(createWorker(QUEUE_NAMES.IMPORT, processImportJob, { concurrency: 2 }));
+    workers.push(createWorker(QUEUE_NAMES.EXPORT, processExportJob, { concurrency: 2 }));
+    workers.push(createWorker(QUEUE_NAMES.EMAIL, processEmailJob));
     logger.info('All workers started');
 }
 
@@ -166,7 +213,4 @@ export async function stopWorkers(): Promise<void> {
     workers.length = 0;
 }
 
-export default {
-    startWorkers,
-    stopWorkers,
-};
+export default { startWorkers, stopWorkers };
