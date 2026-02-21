@@ -8,8 +8,15 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
     globalForPrisma.prisma ??
     new PrismaClient({
+        // PgBouncer-compatible settings
+        datasources: {
+            db: {
+                url: process.env.DATABASE_URL?.includes('pgbouncer')
+                    ? process.env.DATABASE_URL
+                    : process.env.DATABASE_URL,
+            },
+        },
         log: [
-            { emit: 'event', level: 'query' },
             { emit: 'event', level: 'error' },
             { emit: 'event', level: 'warn' },
         ],
@@ -17,14 +24,6 @@ export const prisma =
 
 // Cast to any to access $on for logging
 const prismaAny = prisma as any;
-
-// Log queries in development
-if (process.env.NODE_ENV === 'development') {
-    prismaAny.$on('query', (e: any) => {
-        logger.debug(`Query: ${e.query}`);
-        logger.debug(`Duration: ${e.duration}ms`);
-    });
-}
 
 prismaAny.$on('error', (e: any) => {
     logger.error(`Prisma Error: ${e.message}`);
@@ -38,5 +37,14 @@ prismaAny.$on('warn', (e: any) => {
 if (process.env.NODE_ENV !== 'production') {
     globalForPrisma.prisma = prisma;
 }
+
+// Graceful shutdown
+const gracefulShutdown = async () => {
+    await prisma.$disconnect();
+    logger.info('Prisma disconnected');
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
 
 export default prisma;

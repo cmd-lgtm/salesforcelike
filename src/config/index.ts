@@ -11,6 +11,7 @@ export const config = {
     // Redis
     redis: {
         url: process.env.REDIS_URL || 'redis://localhost:6379',
+        queueUrl: process.env.REDIS_QUEUE_URL || 'redis://localhost:6380',
     },
 
     // Auth

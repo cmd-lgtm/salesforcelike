@@ -86,8 +86,11 @@ export interface CacheWarmupJob {
 // CONNECTION OPTIONS
 // ============================================
 
+import config from '../config';
+
 const connectionOptions = {
     maxRetriesPerRequest: null,
+    url: config.redis.queueUrl,
 };
 
 // ============================================
