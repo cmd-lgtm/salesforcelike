@@ -1,0 +1,477 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// TENANT ISOLATION SETUP
+// ============================================
+
+// Organizations (Tenants)
+model Organization {
+  id            String   @id @default(cuid())
+  name          String   @db.VarChar(255)
+  planType      PlanType @default(FREE)
+  seatsTotal    Int      @default(5)
+  seatsUsed     Int      @default(0)
+  trialEnd      DateTime?
+  stripeCustomerId String? @unique
+  isActive      Boolean  @default(true)
+  settings      Json?    // Organization-specific settings
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  users         User[]
+  leads         Lead[]
+  accounts      Account[]
+  contacts      Contact[]
+  opportunities Opportunity[]
+  activities    Activity[]
+  tasks         Task[]
+  apiKeys       APIKey[]
+  auditLogs     AuditLog[]
+  billingRecords BillingRecord[]
+
+  @@index([isActive])
+  @@index([planType])
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+enum Role {
+  ADMIN
+  MANAGER
+  REP
+  READ_ONLY
+}
+
+enum PlanType {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+model User {
+  id            String   @id @default(cuid())
+  orgId         String
+  email         String   @db.VarChar(255)
+  passwordHash  String   @db.VarChar(255)
+  firstName     String   @db.VarChar(100)
+  lastName      String   @db.VarChar(100)
+  role          Role     @default(REP)
+  isActive      Boolean  @default(true)
+  emailVerified Boolean  @default(false)
+  lastLoginAt   DateTime?
+  failedLoginAttempts Int @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  ownedLeads        Lead[]        @relation("LeadOwner")
+  ownedAccounts     Account[]     @relation("AccountOwner")
+  ownedContacts     Contact[]     @relation("ContactOwner")
+  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
+  ownedActivities   Activity[]    @relation("ActivityOwner")
+  ownedTasks        Task[]        @relation("TaskOwner")
+  auditLogs         AuditLog[]
+  sessions          Session[]
+
+  // Constraints
+  @@unique([orgId, email])
+  @@index([orgId])
+  @@index([email])
+}
+
+// Session tokens for refresh token rotation
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  tokenFamily  String   @default(cuid()) // Groups tokens for rotation
+  jti          String   @unique // JWT ID for token invalidation
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  ipAddress    String?  @db.VarChar(45)
+  userAgent    String?  @db.Text
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  // Composite index for efficient session cleanup queries
+  @@index([userId, expiresAt])
+}
+
+// ============================================
+// CORE CRM ENTITIES
+// ============================================
+
+// Leads
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+  CONVERTED
+}
+
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  COLD_CALL
+  TRADE_SHOW
+  ADVERTISING
+  OTHER
+}
+
+model Lead {
+  id                    String      @id @default(cuid())
+  orgId                 String
+  ownerId               String?
+  firstName             String      @db.VarChar(100)
+  lastName              String      @db.VarChar(100)
+  company               String      @db.VarChar(255)
+  email                 String?     @db.VarChar(255)
+  phone                 String?     @db.VarChar(50)
+  status                LeadStatus  @default(NEW)
+  source                LeadSource  @default(WEBSITE)
+  converted             Boolean     @default(false)
+  convertedToAccountId  String?
+  convertedToContactId  String?
+  convertedToOpportunityId String?
+  convertedAt           DateTime?
+  notes                 String?     @db.Text
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  // Relations
+  organization          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner                 User?        @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([converted])
+  @@index([createdAt])
+  @@index([orgId, status, createdAt])
+  @@index([orgId, email])
+}
+
+// Accounts (Companies)
+enum Industry {
+  TECHNOLOGY
+  HEALTHCARE
+  FINANCE
+  MANUFACTURING
+  RETAIL
+  EDUCATION
+  CONSULTING
+  OTHER
+}
+
+model Account {
+  id              String    @id @default(cuid())
+  orgId           String
+  ownerId         String
+  name            String    @db.VarChar(255)
+  website         String?   @db.VarChar(255)
+  industry        Industry? @default(OTHER)
+  annualRevenue   Decimal?  @db.Decimal(15, 2)
+  employees       Int?
+  billingAddress  Json?     // { street, city, state, country, zip }
+  shippingAddress Json?
+  phone           String?   @db.VarChar(50)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner           User          @relation("AccountOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  contacts        Contact[]
+  opportunities   Opportunity[]
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([industry])
+  @@index([name])
+}
+
+// Contacts (People)
+model Contact {
+  id          String   @id @default(cuid())
+  orgId       String
+  ownerId     String
+  accountId   String?
+  firstName   String   @db.VarChar(100)
+  lastName    String   @db.VarChar(100)
+  title       String?  @db.VarChar(100)
+  email       String?  @db.VarChar(255)
+  phone       String?  @db.VarChar(50)
+  department  String?  @db.VarChar(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  organization  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner        User           @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  account      Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  opportunities Opportunity[]
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([accountId])
+  @@index([email])
+}
+
+// Opportunities (Deals)
+enum OpportunityStage {
+  PROSPECTING
+  QUALIFICATION
+  NEEDS_ANALYSIS
+  VALUE_PROPOSITION
+  DECISION_MAKERS
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+model Opportunity {
+  id          String             @id @default(cuid())
+  orgId       String
+  ownerId     String
+  accountId   String?
+  contactId   String?
+  name        String             @db.VarChar(255)
+  stage       OpportunityStage   @default(PROSPECTING)
+  amount      Decimal?           @db.Decimal(15, 2)
+  probability Int                @default(10) // 0-100
+  closeDate   DateTime
+  lostReason  String?            @db.Text
+  wonNotes    String?            @db.Text
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  // Relations
+  organization  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner         User           @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  account       Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contact       Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  activities    Activity[]
+  tasks         Task[]
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([accountId])
+  @@index([stage])
+  @@index([closeDate])
+  // Composite indexes for common query patterns at scale
+  @@index([orgId, stage, closeDate])
+  @@index([orgId, ownerId, stage])
+  @@index([orgId, accountId, stage])
+}
+
+// ============================================
+// ACTIVITIES & TASKS
+// ============================================
+
+enum ActivityType {
+  CALL
+  MEETING
+  NOTE
+  EMAIL
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  WAITING
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RelatedToType {
+  LEAD
+  ACCOUNT
+  CONTACT
+  OPPORTUNITY
+}
+
+model Activity {
+  id              String        @id @default(cuid())
+  orgId           String
+  ownerId         String
+  relatedToType   RelatedToType
+  relatedToId     String
+  type            ActivityType  @default(NOTE)
+  subject         String        @db.VarChar(255)
+  description     String?       @db.Text
+  activityDate    DateTime
+  duration        Int?          // minutes
+  location        String?       @db.VarChar(255)
+  attendees       String[]      // email addresses
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner           User          @relation("ActivityOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity?  @relation(fields: [relatedToId], references: [id], onDelete: Cascade, map: "Activity_opportunity")
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([relatedToType, relatedToId])
+  @@index([activityDate])
+  // Composite indexes for activity queries at scale
+  @@index([orgId, ownerId, activityDate])
+  @@index([orgId, relatedToType, activityDate])
+}
+
+model Task {
+  id              String        @id @default(cuid())
+  orgId           String
+  ownerId         String
+  relatedToType   RelatedToType
+  relatedToId     String
+  subject         String        @db.VarChar(255)
+  description     String?       @db.Text
+  dueDate         DateTime?
+  status          TaskStatus    @default(NOT_STARTED)
+  priority        TaskPriority  @default(MEDIUM)
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner           User          @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity?  @relation(fields: [relatedToId], references: [id], onDelete: Cascade, map: "Task_opportunity")
+
+  @@index([orgId])
+  @@index([ownerId])
+  @@index([relatedToType, relatedToId])
+  @@index([dueDate])
+  @@index([status])
+  // Composite indexes for task queries at scale
+  @@index([orgId, ownerId, status])
+  @@index([orgId, dueDate, status])
+}
+
+// ============================================
+// API KEYS & AUDIT LOGGING
+// ============================================
+
+model APIKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  label       String    @db.VarChar(100)
+  keyHash     String    @db.VarChar(255) // SHA-256 of key, first 8 chars stored
+  keyPrefix   String    @db.VarChar(8)   // First 8 chars for display
+  scopes      String[]  // e.g., ["read:leads", "write:opportunities"]
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([keyHash])
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+  CONVERT
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  orgId         String
+  userId        String?
+  action        AuditAction
+  objectType    String       @db.VarChar(50)
+  objectId      String?
+  changes       Json?        // { before: {}, after: {} }
+  requestOrigin String?      @db.VarChar(255)
+  ipAddress     String?      @db.VarChar(45)
+  userAgent     String?      @db.Text
+  outcome       AuditOutcome @default(SUCCESS)
+  errorMessage  String?      @db.Text
+  timestamp     DateTime     @default(now())
+
+  // Relations
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([action])
+  @@index([objectType, objectId])
+  @@index([timestamp])
+}
+
+// ============================================
+// BILLING
+// ============================================
+
+enum BillingEventType {
+  SUBSCRIPTION_STARTED
+  SUBSCRIPTION_UPDATED
+  SUBSCRIPTION_CANCELLED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  SEAT_ADDED
+  SEAT_REMOVED
+  TRIAL_STARTED
+  TRIAL_ENDED
+}
+
+model BillingRecord {
+  id              String            @id @default(cuid())
+  orgId           String
+  eventType       BillingEventType
+  amount          Decimal?          @db.Decimal(10, 2)
+  currency        String            @default("USD")
+  planType        PlanType?
+  seatsCount      Int?
+  stripeInvoiceId String?           @unique
+  stripeEventId   String?           @unique
+  metadata        Json?
+  createdAt       DateTime           @default(now())
+
+  organization    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([eventType])
+  @@index([createdAt])
+}

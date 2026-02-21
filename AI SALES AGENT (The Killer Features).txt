@@ -1,0 +1,372 @@
+🧠 AI SALES AGENT (The Killer Feature)
+# services/ai-engine/agents/sales_agent.py
+
+from openai import AsyncOpenAI
+from typing import List, Dict, Optional
+import json
+import asyncio
+from datetime import datetime, timedelta
+
+client = AsyncOpenAI()
+
+
+class AISalesAgent:
+    """
+    Autonomous AI Sales Agent that manages deals through the pipeline.
+    This is what makes NexusCRM 10x better than Salesforce.
+    
+    Capabilities:
+    - Analyzes deals and predicts outcomes
+    - Writes follow-up emails autonomously
+    - Detects deal stalling and takes action
+    - Provides coaching to reps
+    - Creates action plans
+    - Updates CRM automatically
+    """
+    
+    SYSTEM_PROMPT = """
+    You are an elite AI Sales Agent with 20+ years of enterprise sales experience.
+    You manage deals through the sales pipeline autonomously.
+    
+    Your personality:
+    - Data-driven but emotionally intelligent
+    - Direct and actionable in recommendations
+    - Understands sales psychology deeply
+    - Knows when to push and when to pull back
+    - Always focused on moving deals forward
+    
+    You have access to:
+    - Full deal history and context
+    - All email/call/meeting records
+    - Contact and company intelligence
+    - Industry and competitive data
+    - Historical win/loss patterns
+    
+    Your principles:
+    1. Never fabricate data — only use what you know
+    2. Be specific — "Call John Tuesday at 3pm" not "Follow up soon"
+    3. Prioritize high-impact actions
+    4. Detect risk before it becomes a problem
+    5. Learn from every interaction
+    """
+    
+    async def analyze_deal(self, deal: dict, activities: list, contacts: list) -> dict:
+        """
+        Deep analysis of a single deal — predicts outcome and recommends actions
+        """
+        prompt = f"""
+        Analyze this deal and provide a comprehensive assessment.
+        
+        DEAL INFORMATION:
+        Name: {deal['name']}
+        Amount: ${deal['amount']:,.2f}
+        Stage: {deal['stage_name']}
+        Days in Pipeline: {deal['days_in_pipeline']}
+        Days in Current Stage: {deal['days_in_current_stage']}
+        Expected Close: {deal['expected_close_date']}
+        Owner: {deal['owner_name']}
+        
+        COMPANY:
+        {json.dumps(deal.get('company', {}), indent=2)}
+        
+        KEY CONTACTS:
+        {json.dumps(contacts, indent=2)}
+        
+        RECENT ACTIVITIES (last 30 days):
+        {json.dumps(activities[-20:], indent=2)}
+        
+        DEAL SIGNALS:
+        Champion Identified: {deal.get('champion_identified', False)}
+        Decision Maker Engaged: {deal.get('decision_maker_engaged', False)}
+        Budget Confirmed: {deal.get('budget_confirmed', False)}
+        Timeline Confirmed: {deal.get('timeline_confirmed', False)}
+        Competitors: {deal.get('competitors', [])}
+        
+        ANALYZE AND RETURN JSON:
+        {{
+            "win_probability": 0.00,  // 0.00 to 1.00
+            "risk_level": "low|medium|high|critical",
+            "momentum": "accelerating|steady|stalling|dying",
+            
+            "risk_factors": [
+                {{
+                    "risk": "description",
+                    "severity": "high|medium|low",
+                    "mitigation": "what to do about it"
+                }}
+            ],
+            
+            "strengths": ["strength1", "strength2"],
+            
+            "recommended_actions": [
+                {{
+                    "priority": 1,
+                    "action": "specific action to take",
+                    "reason": "why this matters",
+                    "deadline": "when to do it",
+                    "expected_impact": "what this will achieve",
+                    "can_automate": true  // can AI do this?
+                }}
+            ],
+            
+            "deal_summary": "2-3 sentence plain English summary",
+            "predicted_close_date": "YYYY-MM-DD",
+            "predicted_amount": 0.00,
+            
+            "coaching_tips": [
+                "specific coaching advice for the rep"
+            ],
+            
+            "missing_information": [
+                "what we don't know but should find out"
+            ],
+            
+            "competitive_analysis": {{
+                "main_threat": "competitor name",
+                "our_advantages": ["adv1", "adv2"],
+                "their_advantages": ["adv1"],
+                "counter_strategy": "how to win against them"
+            }},
+            
+            "email_draft": {{
+                "should_send": true,
+                "to": "contact email",
+                "subject": "email subject",
+                "body": "personalized email body",
+                "send_time": "optimal send time",
+                "purpose": "why send this email"
+            }}
+        }}
+        
+        Be specific, actionable, and data-driven.
+        Return ONLY valid JSON.
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def run_daily_pipeline_review(
+        self, 
+        org_id: str,
+        deals: List[dict],
+        activities: List[dict]
+    ) -> dict:
+        """
+        AI reviews ENTIRE pipeline daily and creates action plan
+        """
+        prompt = f"""
+        You are reviewing the entire sales pipeline for today.
+        
+        PIPELINE OVERVIEW:
+        Total Deals: {len(deals)}
+        Total Value: ${sum(d['amount'] for d in deals):,.2f}
+        
+        ALL ACTIVE DEALS:
+        {json.dumps(deals, indent=2, default=str)}
+        
+        TODAY'S DATE: {datetime.now().strftime('%Y-%m-%d')}
+        
+        CREATE A DAILY ACTION PLAN:
+        
+        {{
+            "pipeline_health": {{
+                "overall_score": 0,  // 0-100
+                "total_pipeline_value": 0,
+                "weighted_pipeline": 0,
+                "deals_at_risk": 0,
+                "deals_stalling": 0,
+                "deals_accelerating": 0
+            }},
+            
+            "urgent_actions": [
+                {{
+                    "deal_name": "...",
+                    "action": "what to do RIGHT NOW",
+                    "reason": "why this is urgent",
+                    "impact": "high|medium"
+                }}
+            ],
+            
+            "deals_needing_attention": [
+                {{
+                    "deal_id": "...",
+                    "deal_name": "...",
+                    "issue": "what's wrong",
+                    "recommendation": "what to do",
+                    "deadline": "when"
+                }}
+            ],
+            
+            "forecast_update": {{
+                "this_month_prediction": 0,
+                "this_quarter_prediction": 0,
+                "confidence": 0.00,
+                "upside_deals": ["deal names that could close early"],
+                "risk_deals": ["deal names that might slip"]
+            }},
+            
+            "daily_brief": "2-3 paragraph summary for the team",
+            
+            "rep_specific_tasks": {{
+                "rep_name": [
+                    "task 1",
+                    "task 2"
+                ]
+            }}
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def auto_handle_stalled_deal(
+        self,
+        deal: dict,
+        contacts: list,
+        last_activity: dict
+    ) -> dict:
+        """
+        Autonomously take action on a stalled deal
+        """
+        days_stalled = deal['days_in_current_stage']
+        
+        prompt = f"""
+        This deal has stalled for {days_stalled} days. Take autonomous action.
+        
+        DEAL: {deal['name']} - ${deal['amount']:,.2f}
+        STAGE: {deal['stage_name']}
+        LAST ACTIVITY: {json.dumps(last_activity, default=str)}
+        CONTACTS: {json.dumps(contacts)}
+        
+        Based on the stall duration, decide what to do:
+        
+        If stalled 7-14 days:
+        - Write a value-add follow-up email (share relevant content)
+        
+        If stalled 14-21 days:
+        - Write a direct check-in email with meeting request
+        - Try a different contact at the company
+        
+        If stalled 21-30 days:
+        - Escalation email to different stakeholder
+        - Create FOMO (limited time offer/competitive pressure)
+        
+        If stalled 30+ days:
+        - Write a professional breakup email
+        - Recommend deal stage change or close
+        
+        Return JSON:
+        {{
+            "action_taken": "description of action",
+            "email": {{
+                "to": "email address",
+                "subject": "subject line",
+                "body": "complete email body",
+                "tone": "the tone used"
+            }},
+            "crm_updates": {{
+                "deal_fields_to_update": {{}},
+                "tasks_to_create": [],
+                "notes_to_add": ""
+            }},
+            "escalation_needed": false,
+            "escalation_reason": ""
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.6,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def generate_personalized_outreach(
+        self,
+        contact: dict,
+        company: dict,
+        rep_style: dict,
+        campaign_context: str
+    ) -> dict:
+        """
+        Generate highly personalized outreach in the rep's voice
+        """
+        prompt = f"""
+        Write a personalized sales email for this prospect.
+        
+        PROSPECT:
+        Name: {contact['first_name']} {contact['last_name']}
+        Title: {contact['title']}
+        Company: {company['name']}
+        Industry: {company.get('industry', 'Unknown')}
+        Company Size: {company.get('employee_count', 'Unknown')}
+        
+        COMPANY INTELLIGENCE:
+        {json.dumps(company, indent=2)}
+        
+        REP'S WRITING STYLE:
+        Tone: {rep_style.get('tone', 'professional')}
+        Typical Length: {rep_style.get('length', 'medium')}
+        Signature Phrases: {rep_style.get('phrases', [])}
+        Greeting Style: {rep_style.get('greeting', 'Hi [First Name],')}
+        
+        CAMPAIGN CONTEXT: {campaign_context}
+        
+        REQUIREMENTS:
+        - Sound like a real human, not AI
+        - Reference something specific about their company
+        - Lead with value, not features
+        - Keep under 150 words
+        - Include a soft CTA
+        - Write in the rep's personal style
+        
+        Return JSON:
+        {{
+            "subject_line": "...",
+            "subject_line_alternatives": ["alt1", "alt2", "alt3"],
+            "body": "...",
+            "cta": "...",
+            "personalization_elements": ["what was personalized"],
+            "predicted_open_rate": 0.00,
+            "best_send_time": "HH:MM timezone",
+            "best_send_day": "Monday-Friday"
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+
+
+sales_agent = AISalesAgent()

@@ -1,0 +1,272 @@
+💬 NATURAL LANGUAGE QUERY ENGINE
+# services/ai-engine/nlq/query_engine.py
+
+from openai import AsyncOpenAI
+import json
+from typing import Dict, Optional
+
+client = AsyncOpenAI()
+
+
+class NaturalLanguageQueryEngine:
+    """
+    Convert natural language questions into SQL, actions, or insights.
+    
+    Examples:
+    - "Show me all deals over $50K closing this month" → SQL query
+    - "Add John Smith from Tesla as a new lead" → CRM action
+    - "Why did we lose the Acme deal?" → AI analysis
+    - "Create a report of Q4 pipeline" → Report generation
+    - "What should I focus on today?" → AI daily brief
+    """
+    
+    SYSTEM_PROMPT = """
+    You are NexusCRM's AI assistant. You understand natural language commands 
+    about sales, CRM, and business operations.
+    
+    DATABASE SCHEMA:
+    - contacts (id, first_name, last_name, email, title, company_id, lead_score, 
+      lifecycle_stage, owner_id)
+    - companies (id, name, industry, employee_count, annual_revenue, fit_score)
+    - deals (id, name, amount, stage_id, expected_close_date, ai_win_probability, 
+      status, owner_id, company_id)
+    - pipeline_stages (id, name, position, probability)
+    - activities (id, activity_type, subject, body, contact_id, deal_id, 
+      ai_sentiment, activity_date)
+    - users (id, full_name, email, role, quota)
+    
+    You must:
+    1. Classify the user's intent (query, action, analysis, report)
+    2. For queries: generate safe, read-only SQL
+    3. For actions: specify the exact CRM action to take
+    4. For analysis: provide data-driven insights
+    5. For reports: create structured report data
+    6. NEVER generate destructive SQL (DELETE, DROP, TRUNCATE)
+    7. Always filter by org_id for security
+    """
+    
+    async def process_query(self, query: str, user: dict, org_id: str) -> dict:
+        """
+        Process a natural language query and return structured response
+        """
+        
+        # Step 1: Classify intent
+        classification = await self._classify_intent(query)
+        
+        # Step 2: Process based on intent
+        if classification["intent"] == "query":
+            return await self._handle_data_query(query, org_id, classification)
+        elif classification["intent"] == "action":
+            return await self._handle_action(query, user, org_id, classification)
+        elif classification["intent"] == "analysis":
+            return await self._handle_analysis(query, org_id, classification)
+        elif classification["intent"] == "report":
+            return await self._handle_report(query, org_id, classification)
+        elif classification["intent"] == "brief":
+            return await self._handle_daily_brief(user, org_id)
+        else:
+            return await self._handle_general(query, org_id)
+    
+    async def _classify_intent(self, query: str) -> dict:
+        """Classify what the user wants"""
+        
+        prompt = f"""
+        Classify this CRM query:
+        
+        "{query}"
+        
+        Return JSON:
+        {{
+            "intent": "query|action|analysis|report|brief|general",
+            "sub_intent": "specific sub-category",
+            "entities": {{
+                "contacts": ["names mentioned"],
+                "companies": ["company names"],
+                "deals": ["deal names"],
+                "amounts": [0],
+                "dates": ["date references"],
+                "stages": ["pipeline stages"],
+                "metrics": ["metrics mentioned"]
+            }},
+            "time_period": "today|this_week|this_month|this_quarter|custom|all_time",
+            "filters": ["any filters detected"],
+            "sort": "what to sort by if applicable",
+            "limit": null
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def _handle_data_query(self, query: str, org_id: str, classification: dict) -> dict:
+        """Convert natural language to SQL and execute"""
+        
+        prompt = f"""
+        Convert this natural language query to PostgreSQL:
+        
+        QUERY: "{query}"
+        CLASSIFICATION: {json.dumps(classification)}
+        ORG_ID: '{org_id}'
+        
+        RULES:
+        - Always include WHERE org_id = '{org_id}'
+        - Use JOINs when needed
+        - LIMIT to 100 rows max
+        - Only SELECT statements (no INSERT/UPDATE/DELETE)
+        - Use readable column aliases
+        - Format dates nicely
+        - Round decimal numbers
+        
+        Return JSON:
+        {{
+            "sql": "SELECT ...",
+            "explanation": "what this query does in plain English",
+            "visualization": "table|bar_chart|line_chart|pie_chart|number|pipeline",
+            "columns": ["col1", "col2"],
+            "title": "a good title for the results"
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        # Execute the query safely
+        # data = await execute_read_only_sql(result["sql"])
+        
+        return {
+            "type": "query",
+            "sql": result["sql"],
+            "explanation": result["explanation"],
+            "visualization": result["visualization"],
+            "title": result["title"],
+            # "data": data,
+            "natural_language_response": f"Here are the results for: {query}"
+        }
+    
+    async def _handle_action(self, query: str, user: dict, org_id: str, classification: dict) -> dict:
+        """Handle CRM actions from natural language"""
+        
+        prompt = f"""
+        The user wants to perform a CRM action:
+        
+        QUERY: "{query}"
+        USER: {user['full_name']} ({user['role']})
+        CLASSIFICATION: {json.dumps(classification)}
+        
+        Determine the exact action and return JSON:
+        {{
+            "action_type": "create_contact|create_deal|update_deal|create_task|
+                send_email|schedule_meeting|add_note|update_contact",
+            "action_data": {{
+                // the data for the action
+            }},
+            "confirmation_message": "what to confirm with user",
+            "requires_confirmation": true,
+            "auto_fill_suggestions": {{
+                // any fields AI can auto-fill
+            }}
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        return {
+            "type": "action",
+            **json.loads(response.choices[0].message.content)
+        }
+    
+    async def _handle_analysis(self, query: str, org_id: str, classification: dict) -> dict:
+        """Provide AI-powered analysis"""
+        
+        prompt = f"""
+        Provide a detailed analysis for this question:
+        
+        QUERY: "{query}"
+        
+        Analyze using available CRM data and return:
+        {{
+            "analysis": "detailed analysis in plain English",
+            "key_findings": ["finding1", "finding2", "finding3"],
+            "data_points": [
+                {{"metric": "name", "value": "value", "trend": "up|down|flat"}}
+            ],
+            "recommendations": [
+                {{"action": "what to do", "impact": "expected impact", "priority": "high|medium|low"}}
+            ],
+            "visualization_data": {{
+                "chart_type": "bar|line|pie",
+                "data": []
+            }}
+        }}
+        """
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4,
+            response_format={"type": "json_object"}
+        )
+        
+        return {
+            "type": "analysis",
+            **json.loads(response.choices[0].message.content)
+        }
+    
+    async def _handle_daily_brief(self, user: dict, org_id: str) -> dict:
+        """Generate personalized daily brief"""
+        
+        return {
+            "type": "brief",
+            "greeting": f"Good morning, {user['full_name'].split()[0]}! Here's your daily brief:",
+            "sections": [
+                {
+                    "title": "🎯 Today's Priority Deals",
+                    "content": "3 deals need attention today..."
+                },
+                {
+                    "title": "📧 Emails to Send",
+                    "content": "5 follow-ups are overdue..."
+                },
+                {
+                    "title": "📊 Pipeline Update",
+                    "content": "Your pipeline is at $2.3M, up 12% from last week..."
+                },
+                {
+                    "title": "⚠️ Risk Alerts",
+                    "content": "2 deals showing signs of stalling..."
+                },
+                {
+                    "title": "🏆 Wins This Week",
+                    "content": "You closed 2 deals worth $85K..."
+                }
+            ]
+        }
+
+
+nlq_engine = NaturalLanguageQueryEngine()

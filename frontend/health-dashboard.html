@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusCRM — System Health Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #060919;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        /* ─── TOP NAV ─── */
+        .nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 28px;
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-dot {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .brand-text {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .brand-sub {
+            font-size: 13px;
+            color: rgba(226, 232, 240, 0.4);
+        }
+
+        .last-updated {
+            font-size: 12px;
+            color: rgba(226, 232, 240, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+            animation: pulse 2s ease infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        /* ─── OVERALL SCORE HERO ─── */
+        .score-hero {
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.15) 0%, rgba(79, 70, 229, 0.1) 100%);
+            border: 1px solid rgba(124, 58, 237, 0.25);
+            border-radius: 20px;
+            padding: 28px 32px;
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            margin-bottom: 24px;
+        }
+
+        .score-circle {
+            width: 100px;
+            height: 100px;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .score-circle svg {
+            transform: rotate(-90deg);
+        }
+
+        .score-circle circle {
+            fill: none;
+            stroke-width: 8;
+            stroke-linecap: round;
+        }
+
+        .score-circle .bg {
+            stroke: rgba(255, 255, 255, 0.06);
+        }
+
+        .score-circle .fg {
+            stroke: #7c3aed;
+            stroke-dasharray: 283;
+            stroke-dashoffset: 71;
+            transition: stroke-dashoffset 1s ease, stroke 0.5s ease;
+        }
+
+        .score-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .score-num {
+            font-size: 26px;
+            font-weight: 700;
+        }
+
+        .score-pct {
+            font-size: 11px;
+            color: rgba(226, 232, 240, 0.5);
+        }
+
+        .score-info h2 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .score-info p {
+            font-size: 14px;
+            color: rgba(226, 232, 240, 0.5);
+        }
+
+        .score-badges {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-green {
+            background: rgba(34, 197, 94, 0.12);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+
+        .badge-yellow {
+            background: rgba(234, 179, 8, 0.12);
+            color: #facc15;
+            border: 1px solid rgba(234, 179, 8, 0.25);
+        }
+
+        .badge-red {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+
+        .badge-purple {
+            background: rgba(167, 139, 250, 0.12);
+            color: #a78bfa;
+            border: 1px solid rgba(167, 139, 250, 0.25);
+        }
+
+        .badge-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* ─── GRID ─── */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        @media(max-width: 900px) {
+
+            .grid-2,
+            .grid-3 {
+                grid-template-columns: 1fr;
+            }
+
+            .score-hero {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+
+        /* ─── CARD ─── */
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 16px;
+            padding: 20px 22px;
+        }
+
+        .card-title {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: rgba(226, 232, 240, 0.4);
+            margin-bottom: 16px;
+        }
+
+        /* ─── METRIC ROW ─── */
+        .metric-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .metric-label {
+            font-size: 13px;
+            color: rgba(226, 232, 240, 0.6);
+        }
+
+        .metric-value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .metric-sub {
+            font-size: 11px;
+            color: rgba(226, 232, 240, 0.35);
+            margin-top: 1px;
+        }
+
+        /* ─── PROGRESS BAR ─── */
+        .progress-wrap {
+            margin-bottom: 16px;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1s ease;
+        }
+
+        .fill-green {
+            background: linear-gradient(90deg, #22c55e, #4ade80);
+        }
+
+        .fill-yellow {
+            background: linear-gradient(90deg, #f59e0b, #fbbf24);
+        }
+
+        .fill-red {
+            background: linear-gradient(90deg, #ef4444, #f87171);
+        }
+
+        .fill-purple {
+            background: linear-gradient(90deg, #7c3aed, #8b5cf6);
+        }
+
+        /* ─── STATUS INDICATOR ─── */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .dot-green {
+            background: #22c55e;
+            box-shadow: 0 0 6px #22c55e;
+        }
+
+        .dot-yellow {
+            background: #f59e0b;
+            box-shadow: 0 0 6px #f59e0b;
+        }
+
+        .dot-red {
+            background: #ef4444;
+            box-shadow: 0 0 6px #ef4444;
+        }
+
+        /* ─── DATABASE CARD ─── */
+        .db-metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 13px;
+        }
+
+        .db-metric:last-child {
+            border-bottom: none;
+        }
+
+        .db-key {
+            color: rgba(226, 232, 240, 0.5);
+        }
+
+        .db-val {
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        .val-green {
+            color: #4ade80;
+        }
+
+        .val-yellow {
+            color: #fbbf24;
+        }
+
+        .val-red {
+            color: #f87171;
+        }
+
+        .val-blue {
+            color: #60a5fa;
+        }
+
+        /* ─── ALERTS ─── */
+        .alert-item {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 10px 12px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .alert-critical {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .alert-warning {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .alert-info {
+            background: rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .alert-icon {
+            font-size: 14px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .alert-msg {
+            color: rgba(226, 232, 240, 0.8);
+            line-height: 1.4;
+        }
+
+        .alert-svc {
+            font-weight: 600;
+            color: #e2e8f0;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        /* ─── PREDICTIONS ─── */
+        .prediction-item {
+            padding: 12px 14px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            background: rgba(124, 58, 237, 0.06);
+            border: 1px solid rgba(124, 58, 237, 0.15);
+            font-size: 13px;
+        }
+
+        .pred-type {
+            font-size: 11px;
+            font-weight: 600;
+            color: #a78bfa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .pred-text {
+            color: rgba(226, 232, 240, 0.7);
+            line-height: 1.5;
+        }
+
+        .pred-action {
+            font-size: 11px;
+            color: rgba(167, 139, 250, 0.6);
+            margin-top: 4px;
+        }
+
+        /* ─── EMPTY STATE ─── */
+        .empty {
+            text-align: center;
+            padding: 24px;
+            color: rgba(226, 232, 240, 0.3);
+            font-size: 13px;
+        }
+
+        .empty-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        /* ─── REFRESH BTN ─── */
+        .refresh-btn {
+            background: rgba(124, 58, 237, 0.15);
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            border-radius: 8px;
+            padding: 6px 14px;
+            color: #a78bfa;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(124, 58, 237, 0.25);
+        }
+
+        /* Config */
+        .config-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .config-row label {
+            font-size: 12px;
+            color: rgba(226, 232, 240, 0.4);
+            white-space: nowrap;
+        }
+
+        .config-row input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: #e2e8f0;
+            outline: none;
+            font-family: monospace;
+            min-width: 240px;
+        }
+
+        .config-row input:focus {
+            border-color: rgba(167, 139, 250, 0.4);
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- NAV -->
+    <div class="nav">
+        <div class="nav-brand">
+            <div class="brand-dot">✦</div>
+            <div>
+                <div class="brand-text">NexusCRM</div>
+                <div class="brand-sub">Self-Healing Dashboard</div>
+            </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+            <button class="refresh-btn" onclick="fetchHealth()">↻ Refresh</button>
+            <div class="last-updated">
+                <div class="pulse"></div>
+                <span id="last-updated-text">Connecting...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config -->
+    <div class="config-row">
+        <label>API URL:</label>
+        <input type="text" id="api-url" value="http://localhost:3000/api/v1">
+    </div>
+
+    <!-- SCORE HERO -->
+    <div class="score-hero" id="score-hero">
+        <div class="score-circle">
+            <svg width="100" height="100" viewBox="0 0 100 100">
+                <circle class="bg" cx="50" cy="50" r="45" />
+                <circle class="fg" id="score-ring" cx="50" cy="50" r="45" />
+            </svg>
+            <div class="score-label">
+                <div class="score-num" id="score-num">—</div>
+                <div class="score-pct">score</div>
+            </div>
+        </div>
+        <div class="score-info">
+            <h2 id="overall-status">Loading...</h2>
+            <p id="status-desc">Fetching system health data...</p>
+            <div class="score-badges" id="score-badges"></div>
+        </div>
+    </div>
+
+    <!-- INFRA ROW -->
+    <div class="grid-3">
+        <div class="card">
+            <div class="card-title">⚡ CPU</div>
+            <div class="metric-row">
+                <div>
+                    <div class="metric-value" id="cpu-pct">—</div>
+                    <div class="metric-sub" id="cpu-cores">— cores</div>
+                </div>
+                <div id="cpu-status-dot"></div>
+            </div>
+            <div class="progress-wrap">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="cpu-bar" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">🧠 Memory</div>
+            <div class="metric-row">
+                <div>
+                    <div class="metric-value" id="mem-pct">—</div>
+                    <div class="metric-sub" id="mem-info">— GB total</div>
+                </div>
+                <div id="mem-status-dot"></div>
+            </div>
+            <div class="progress-wrap">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="mem-bar" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">🗄️ Database</div>
+            <div id="db-metrics">
+                <div class="empty">
+                    <div class="empty-icon">⏳</div>Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ALERTS + PREDICTIONS -->
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-title">⚠️ Active Alerts</div>
+            <div id="alerts-list">
+                <div class="empty">
+                    <div class="empty-icon">✅</div>No active alerts
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">🔮 AI Predictions</div>
+            <div id="predictions-list">
+                <div class="empty">
+                    <div class="empty-icon">🔍</div>Collecting data for predictions...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval = null;
+
+        const STATUS_COLORS = {
+            healthy: '#22c55e', warning: '#f59e0b', degraded: '#f97316', critical: '#ef4444'
+        };
+        const STATUS_LABELS = {
+            healthy: '🟢 All Systems Operational',
+            warning: '🟡 Minor Issues Detected',
+            degraded: '🟠 Performance Degraded',
+            critical: '🔴 Critical — System Down',
+        };
+
+        function getBarClass(pct) {
+            if (pct >= 90) return 'fill-red';
+            if (pct >= 70) return 'fill-yellow';
+            return 'fill-green';
+        }
+        function getDotClass(status) {
+            if (!status || status === 'healthy') return 'dot-green';
+            if (status === 'warning') return 'dot-yellow';
+            return 'dot-red';
+        }
+
+        async function fetchHealth() {
+            const url = document.getElementById('api-url').value.trim();
+            try {
+                const res = await fetch(`${url}/health/status`);
+                const json = await res.json();
+                if (json.success) renderDashboard(json.data);
+                else throw new Error('Non-success response');
+            } catch (e) {
+                document.getElementById('overall-status').textContent = '⚠️ Cannot Reach API';
+                document.getElementById('status-desc').textContent = e.message;
+            }
+            document.getElementById('last-updated-text').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        }
+
+        function renderDashboard(data) {
+            // Score ring
+            const score = data.overall_score ?? 100;
+            const circumference = 2 * Math.PI * 45; // 282.7
+            const offset = circumference - (score / 100) * circumference;
+            const ring = document.getElementById('score-ring');
+            ring.style.strokeDashoffset = offset;
+            ring.style.stroke = STATUS_COLORS[data.overall_status] || '#7c3aed';
+
+            document.getElementById('score-num').textContent = score;
+            document.getElementById('overall-status').textContent = STATUS_LABELS[data.overall_status] || data.overall_status;
+            document.getElementById('status-desc').textContent = `Health score: ${score}/100`;
+
+            // Badges
+            const infra = data.infrastructure || {};
+            const badges = document.getElementById('score-badges');
+            const cpuOk = infra.cpu?.usage_percent < 70;
+            const memOk = infra.memory?.usage_percent < 75;
+            const dbOk = data.database?.status === 'healthy';
+            badges.innerHTML = `
+        <span class="badge ${cpuOk ? 'badge-green' : 'badge-yellow'}"><span class="badge-dot"></span> CPU ${cpuOk ? 'Normal' : 'High'}</span>
+        <span class="badge ${memOk ? 'badge-green' : 'badge-yellow'}"><span class="badge-dot"></span> RAM ${memOk ? 'Normal' : 'High'}</span>
+        <span class="badge ${dbOk ? 'badge-green' : 'badge-red'}"><span class="badge-dot"></span> DB ${dbOk ? 'Connected' : 'Issue'}</span>
+        <span class="badge badge-purple"><span class="badge-dot"></span> ${data.alerts?.length || 0} Alerts</span>`;
+
+            // CPU
+            const cpu = infra.cpu || {};
+            const cpuPct = cpu.usage_percent ?? 0;
+            document.getElementById('cpu-pct').textContent = cpuPct.toFixed(1) + '%';
+            document.getElementById('cpu-cores').textContent = (cpu.cores || 0) + ' cores';
+            document.getElementById('cpu-status-dot').innerHTML = `<span class="status-dot ${getDotClass(cpu.status)}"></span>`;
+            const cpuBar = document.getElementById('cpu-bar');
+            cpuBar.style.width = cpuPct + '%';
+            cpuBar.className = 'progress-fill ' + getBarClass(cpuPct);
+
+            // Memory
+            const mem = infra.memory || {};
+            const memPct = mem.usage_percent ?? 0;
+            document.getElementById('mem-pct').textContent = memPct.toFixed(1) + '%';
+            document.getElementById('mem-info').textContent = `${(mem.available_gb || 0).toFixed(1)} GB free / ${(mem.total_gb || 0).toFixed(1)} GB`;
+            document.getElementById('mem-status-dot').innerHTML = `<span class="status-dot ${getDotClass(mem.status)}"></span>`;
+            const memBar = document.getElementById('mem-bar');
+            memBar.style.width = memPct + '%';
+            memBar.className = 'progress-fill ' + getBarClass(memPct);
+
+            // Database
+            const db = data.database || {};
+            const dbLatencyClass = !db.latency_ms ? '' : db.latency_ms > 500 ? 'val-red' : db.latency_ms > 200 ? 'val-yellow' : 'val-green';
+            document.getElementById('db-metrics').innerHTML = `
+        <div class="db-metric"><span class="db-key">Status</span><span class="db-val ${db.status === 'healthy' ? 'val-green' : 'val-red'}">${db.status || '—'}</span></div>
+        <div class="db-metric"><span class="db-key">Latency</span><span class="db-val ${dbLatencyClass}">${db.latency_ms != null ? db.latency_ms + ' ms' : '—'}</span></div>
+        <div class="db-metric"><span class="db-key">Connections</span><span class="db-val val-blue">${db.connections_active ?? 0} / ${db.connections_max ?? 100}</span></div>`;
+
+            // Alerts
+            const alerts = data.alerts || [];
+            document.getElementById('alerts-list').innerHTML = alerts.length === 0
+                ? '<div class="empty"><div class="empty-icon">✅</div>No active alerts</div>'
+                : alerts.map(a => `
+            <div class="alert-item alert-${a.severity === 'critical' ? 'critical' : 'warning'}">
+                <span class="alert-icon">${a.severity === 'critical' ? '🔴' : '🟡'}</span>
+                <div class="alert-msg">
+                    <span class="alert-svc">${esc(a.service || '')}</span>
+                    ${esc(a.message || '')}
+                </div>
+            </div>`).join('');
+
+            // Predictions
+            const preds = data.predictions || [];
+            document.getElementById('predictions-list').innerHTML = preds.length === 0
+                ? '<div class="empty"><div class="empty-icon">🔍</div>Collecting data for predictions...</div>'
+                : preds.map(p => `
+            <div class="prediction-item">
+                <div class="pred-type">${esc(p.type || '')}</div>
+                <div class="pred-text">${esc(p.prediction || '')}</div>
+                <div class="pred-action">→ Recommended: ${esc(p.recommended_action || '')}</div>
+            </div>`).join('');
+        }
+
+        function esc(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // Initial load + auto-refresh every 10 seconds
+        fetchHealth();
+        refreshInterval = setInterval(fetchHealth, 10000);
+    </script>
+</body>
+
+</html>

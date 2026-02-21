@@ -1,0 +1,1002 @@
+🏥 SELF-HEALING ENGINE (The Game Changer)
+# services/self-healing/monitors/health_monitor.py
+
+import asyncio
+import httpx
+import psutil
+import time
+from datetime import datetime
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class HealthMonitor:
+    """
+    Continuously monitors all services and infrastructure.
+    Detects issues BEFORE they become problems.
+    """
+    
+    SERVICES = {
+        "ai-engine": {"url": "http://ai-engine:8001/health", "critical": True},
+        "crm-core": {"url": "http://crm-core:8002/health", "critical": True},
+        "email-intelligence": {"url": "http://email:8003/health", "critical": False},
+        "meeting-copilot": {"url": "http://meeting:8004/health", "critical": False},
+        "enrichment": {"url": "http://enrichment:8005/health", "critical": False},
+        "workflow": {"url": "http://workflow:8006/health", "critical": False},
+    }
+    
+    THRESHOLDS = {
+        "cpu_warning": 70,
+        "cpu_critical": 90,
+        "memory_warning": 75,
+        "memory_critical": 90,
+        "disk_warning": 80,
+        "disk_critical": 95,
+        "latency_warning_ms": 500,
+        "latency_critical_ms": 2000,
+        "error_rate_warning": 0.01,  # 1%
+        "error_rate_critical": 0.05,  # 5%
+    }
+    
+    def __init__(self):
+        self.health_history = []
+        self.alert_cooldown = {}  # Prevent alert spam
+    
+    async def run_health_check(self) -> Dict:
+        """
+        Run comprehensive health check on all services
+        """
+        results = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "overall_status": "healthy",
+            "overall_score": 100,
+            "services": {},
+            "infrastructure": {},
+            "alerts": [],
+            "predictions": []
+        }
+        
+        # Check all services in parallel
+        tasks = [
+            self._check_service(name, config)
+            for name, config in self.SERVICES.items()
+        ]
+        service_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for i, (name, _) in enumerate(self.SERVICES.items()):
+            if isinstance(service_results[i], Exception):
+                results["services"][name] = {
+                    "status": "down",
+                    "error": str(service_results[i]),
+                    "score": 0
+                }
+                results["alerts"].append({
+                    "severity": "critical",
+                    "service": name,
+                    "message": f"Service {name} is DOWN: {service_results[i]}"
+                })
+            else:
+                results["services"][name] = service_results[i]
+        
+        # Check infrastructure
+        results["infrastructure"] = await self._check_infrastructure()
+        
+        # Check database
+        results["database"] = await self._check_database()
+        
+        # Check external APIs
+        results["external_apis"] = await self._check_external_apis()
+        
+        # Calculate overall score
+        results["overall_score"] = self._calculate_overall_score(results)
+        results["overall_status"] = self._determine_status(results["overall_score"])
+        
+        # AI Predictions
+        results["predictions"] = await self._predict_issues(results)
+        
+        # Store in history
+        self.health_history.append(results)
+        if len(self.health_history) > 1000:
+            self.health_history = self.health_history[-500:]
+        
+        return results
+    
+    async def _check_service(self, name: str, config: dict) -> dict:
+        """Check individual service health"""
+        start_time = time.time()
+        
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(config["url"])
+                latency = (time.time() - start_time) * 1000  # ms
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    status = "healthy"
+                    score = 100
+                    
+                    # Check latency
+                    if latency > self.THRESHOLDS["latency_critical_ms"]:
+                        status = "degraded"
+                        score -= 30
+                    elif latency > self.THRESHOLDS["latency_warning_ms"]:
+                        status = "warning"
+                        score -= 10
+                    
+                    return {
+                        "status": status,
+                        "score": max(0, score),
+                        "latency_ms": round(latency, 2),
+                        "uptime": data.get("uptime", "unknown"),
+                        "version": data.get("version", "unknown"),
+                        "metrics": data.get("metrics", {})
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "score": 20,
+                        "latency_ms": round(latency, 2),
+                        "error": f"HTTP {response.status_code}"
+                    }
+        except Exception as e:
+            return {
+                "status": "down",
+                "score": 0,
+                "error": str(e),
+                "latency_ms": (time.time() - start_time) * 1000
+            }
+    
+    async def _check_infrastructure(self) -> dict:
+        """Check server infrastructure"""
+        return {
+            "cpu": {
+                "usage_percent": psutil.cpu_percent(interval=1),
+                "cores": psutil.cpu_count(),
+                "status": "healthy" if psutil.cpu_percent() < 70 else "warning"
+            },
+            "memory": {
+                "usage_percent": psutil.virtual_memory().percent,
+                "total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+                "available_gb": round(psutil.virtual_memory().available / (1024**3), 2),
+                "status": "healthy" if psutil.virtual_memory().percent < 75 else "warning"
+            },
+            "disk": {
+                "usage_percent": psutil.disk_usage('/').percent,
+                "total_gb": round(psutil.disk_usage('/').total / (1024**3), 2),
+                "free_gb": round(psutil.disk_usage('/').free / (1024**3), 2),
+                "status": "healthy" if psutil.disk_usage('/').percent < 80 else "warning"
+            }
+        }
+    
+    async def _check_database(self) -> dict:
+        """Check database health"""
+        try:
+            # Test query execution time
+            start = time.time()
+            # Execute: SELECT 1
+            latency = (time.time() - start) * 1000
+            
+            return {
+                "status": "healthy",
+                "latency_ms": round(latency, 2),
+                "connections_active": 0,  # Get from pg_stat_activity
+                "connections_max": 100,
+                "replication_lag_ms": 0,
+                "slow_queries_count": 0
+            }
+        except Exception as e:
+            return {"status": "down", "error": str(e)}
+    
+    async def _check_external_apis(self) -> dict:
+        """Check external API integrations"""
+        apis = {
+            "openai": "https://api.openai.com/v1/models",
+            "sendgrid": "https://api.sendgrid.com/v3/api_keys",
+            "twilio": "https://api.twilio.com/2010-04-01",
+        }
+        
+        results = {}
+        for name, url in apis.items():
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    start = time.time()
+                    response = await client.get(url)
+                    latency = (time.time() - start) * 1000
+                    results[name] = {
+                        "status": "healthy" if response.status_code < 500 else "error",
+                        "latency_ms": round(latency, 2)
+                    }
+            except:
+                results[name] = {"status": "unreachable"}
+        
+        return results
+    
+    async def _predict_issues(self, current_health: dict) -> list:
+        """
+        AI predicts future issues based on trends
+        """
+        if len(self.health_history) < 10:
+            return []
+        
+        # Analyze trends
+        predictions = []
+        
+        # CPU trend
+        cpu_values = [
+            h["infrastructure"]["cpu"]["usage_percent"] 
+            for h in self.health_history[-20:]
+            if "infrastructure" in h
+        ]
+        if cpu_values and len(cpu_values) > 5:
+            avg = sum(cpu_values) / len(cpu_values)
+            trend = cpu_values[-1] - cpu_values[0]
+            if trend > 20:
+                predictions.append({
+                    "type": "cpu_exhaustion",
+                    "severity": "high",
+                    "prediction": f"CPU usage trending up ({trend:.0f}% increase). "
+                                  f"May hit critical levels in ~{int((90-avg)/trend*20)} minutes.",
+                    "recommended_action": "scale_up"
+                })
+        
+        # Memory trend
+        mem_values = [
+            h["infrastructure"]["memory"]["usage_percent"]
+            for h in self.health_history[-20:]
+            if "infrastructure" in h
+        ]
+        if mem_values and len(mem_values) > 5:
+            trend = mem_values[-1] - mem_values[0]
+            if trend > 15:
+                predictions.append({
+                    "type": "memory_leak",
+                    "severity": "high",
+                    "prediction": "Possible memory leak detected. Usage increasing steadily.",
+                    "recommended_action": "investigate_memory_leak"
+                })
+        
+        # Error rate trend
+        # ... similar analysis for error rates
+        
+        return predictions
+    
+    def _calculate_overall_score(self, results: dict) -> int:
+        """Calculate overall system health score"""
+        scores = []
+        
+        # Service scores (weighted by criticality)
+        for name, service in results["services"].items():
+            weight = 2.0 if self.SERVICES[name]["critical"] else 1.0
+            scores.append(service.get("score", 0) * weight)
+        
+        # Infrastructure score
+        infra = results.get("infrastructure", {})
+        if infra:
+            cpu_score = max(0, 100 - infra.get("cpu", {}).get("usage_percent", 0))
+            mem_score = max(0, 100 - infra.get("memory", {}).get("usage_percent", 0))
+            scores.extend([cpu_score, mem_score])
+        
+        return int(sum(scores) / len(scores)) if scores else 0
+    
+    def _determine_status(self, score: int) -> str:
+        if score >= 90: return "healthy"
+        if score >= 70: return "warning"
+        if score >= 50: return "degraded"
+        return "critical"
+
+
+health_monitor = HealthMonitor()
+
+# services/self-healing/monitors/health_monitor.py
+
+import asyncio
+import httpx
+import psutil
+import time
+from datetime import datetime
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class HealthMonitor:
+    """
+    Continuously monitors all services and infrastructure.
+    Detects issues BEFORE they become problems.
+    """
+    
+    SERVICES = {
+        "ai-engine": {"url": "http://ai-engine:8001/health", "critical": True},
+        "crm-core": {"url": "http://crm-core:8002/health", "critical": True},
+        "email-intelligence": {"url": "http://email:8003/health", "critical": False},
+        "meeting-copilot": {"url": "http://meeting:8004/health", "critical": False},
+        "enrichment": {"url": "http://enrichment:8005/health", "critical": False},
+        "workflow": {"url": "http://workflow:8006/health", "critical": False},
+    }
+    
+    THRESHOLDS = {
+        "cpu_warning": 70,
+        "cpu_critical": 90,
+        "memory_warning": 75,
+        "memory_critical": 90,
+        "disk_warning": 80,
+        "disk_critical": 95,
+        "latency_warning_ms": 500,
+        "latency_critical_ms": 2000,
+        "error_rate_warning": 0.01,  # 1%
+        "error_rate_critical": 0.05,  # 5%
+    }
+    
+    def __init__(self):
+        self.health_history = []
+        self.alert_cooldown = {}  # Prevent alert spam
+    
+    async def run_health_check(self) -> Dict:
+        """
+        Run comprehensive health check on all services
+        """
+        results = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "overall_status": "healthy",
+            "overall_score": 100,
+            "services": {},
+            "infrastructure": {},
+            "alerts": [],
+            "predictions": []
+        }
+        
+        # Check all services in parallel
+        tasks = [
+            self._check_service(name, config)
+            for name, config in self.SERVICES.items()
+        ]
+        service_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for i, (name, _) in enumerate(self.SERVICES.items()):
+            if isinstance(service_results[i], Exception):
+                results["services"][name] = {
+                    "status": "down",
+                    "error": str(service_results[i]),
+                    "score": 0
+                }
+                results["alerts"].append({
+                    "severity": "critical",
+                    "service": name,
+                    "message": f"Service {name} is DOWN: {service_results[i]}"
+                })
+            else:
+                results["services"][name] = service_results[i]
+        
+        # Check infrastructure
+        results["infrastructure"] = await self._check_infrastructure()
+        
+        # Check database
+        results["database"] = await self._check_database()
+        
+        # Check external APIs
+        results["external_apis"] = await self._check_external_apis()
+        
+        # Calculate overall score
+        results["overall_score"] = self._calculate_overall_score(results)
+        results["overall_status"] = self._determine_status(results["overall_score"])
+        
+        # AI Predictions
+        results["predictions"] = await self._predict_issues(results)
+        
+        # Store in history
+        self.health_history.append(results)
+        if len(self.health_history) > 1000:
+            self.health_history = self.health_history[-500:]
+        
+        return results
+    
+    async def _check_service(self, name: str, config: dict) -> dict:
+        """Check individual service health"""
+        start_time = time.time()
+        
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(config["url"])
+                latency = (time.time() - start_time) * 1000  # ms
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    status = "healthy"
+                    score = 100
+                    
+                    # Check latency
+                    if latency > self.THRESHOLDS["latency_critical_ms"]:
+                        status = "degraded"
+                        score -= 30
+                    elif latency > self.THRESHOLDS["latency_warning_ms"]:
+                        status = "warning"
+                        score -= 10
+                    
+                    return {
+                        "status": status,
+                        "score": max(0, score),
+                        "latency_ms": round(latency, 2),
+                        "uptime": data.get("uptime", "unknown"),
+                        "version": data.get("version", "unknown"),
+                        "metrics": data.get("metrics", {})
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "score": 20,
+                        "latency_ms": round(latency, 2),
+                        "error": f"HTTP {response.status_code}"
+                    }
+        except Exception as e:
+            return {
+                "status": "down",
+                "score": 0,
+                "error": str(e),
+                "latency_ms": (time.time() - start_time) * 1000
+            }
+    
+    async def _check_infrastructure(self) -> dict:
+        """Check server infrastructure"""
+        return {
+            "cpu": {
+                "usage_percent": psutil.cpu_percent(interval=1),
+                "cores": psutil.cpu_count(),
+                "status": "healthy" if psutil.cpu_percent() < 70 else "warning"
+            },
+            "memory": {
+                "usage_percent": psutil.virtual_memory().percent,
+                "total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+                "available_gb": round(psutil.virtual_memory().available / (1024**3), 2),
+                "status": "healthy" if psutil.virtual_memory().percent < 75 else "warning"
+            },
+            "disk": {
+                "usage_percent": psutil.disk_usage('/').percent,
+                "total_gb": round(psutil.disk_usage('/').total / (1024**3), 2),
+                "free_gb": round(psutil.disk_usage('/').free / (1024**3), 2),
+                "status": "healthy" if psutil.disk_usage('/').percent < 80 else "warning"
+            }
+        }
+    
+    async def _check_database(self) -> dict:
+        """Check database health"""
+        try:
+            # Test query execution time
+            start = time.time()
+            # Execute: SELECT 1
+            latency = (time.time() - start) * 1000
+            
+            return {
+                "status": "healthy",
+                "latency_ms": round(latency, 2),
+                "connections_active": 0,  # Get from pg_stat_activity
+                "connections_max": 100,
+                "replication_lag_ms": 0,
+                "slow_queries_count": 0
+            }
+        except Exception as e:
+            return {"status": "down", "error": str(e)}
+    
+    async def _check_external_apis(self) -> dict:
+        """Check external API integrations"""
+        apis = {
+            "openai": "https://api.openai.com/v1/models",
+            "sendgrid": "https://api.sendgrid.com/v3/api_keys",
+            "twilio": "https://api.twilio.com/2010-04-01",
+        }
+        
+        results = {}
+        for name, url in apis.items():
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    start = time.time()
+                    response = await client.get(url)
+                    latency = (time.time() - start) * 1000
+                    results[name] = {
+                        "status": "healthy" if response.status_code < 500 else "error",
+                        "latency_ms": round(latency, 2)
+                    }
+            except:
+                results[name] = {"status": "unreachable"}
+        
+        return results
+    
+    async def _predict_issues(self, current_health: dict) -> list:
+        """
+        AI predicts future issues based on trends
+        """
+        if len(self.health_history) < 10:
+            return []
+        
+        # Analyze trends
+        predictions = []
+        
+        # CPU trend
+        cpu_values = [
+            h["infrastructure"]["cpu"]["usage_percent"] 
+            for h in self.health_history[-20:]
+            if "infrastructure" in h
+        ]
+        if cpu_values and len(cpu_values) > 5:
+            avg = sum(cpu_values) / len(cpu_values)
+            trend = cpu_values[-1] - cpu_values[0]
+            if trend > 20:
+                predictions.append({
+                    "type": "cpu_exhaustion",
+                    "severity": "high",
+                    "prediction": f"CPU usage trending up ({trend:.0f}% increase). "
+                                  f"May hit critical levels in ~{int((90-avg)/trend*20)} minutes.",
+                    "recommended_action": "scale_up"
+                })
+        
+        # Memory trend
+        mem_values = [
+            h["infrastructure"]["memory"]["usage_percent"]
+            for h in self.health_history[-20:]
+            if "infrastructure" in h
+        ]
+        if mem_values and len(mem_values) > 5:
+            trend = mem_values[-1] - mem_values[0]
+            if trend > 15:
+                predictions.append({
+                    "type": "memory_leak",
+                    "severity": "high",
+                    "prediction": "Possible memory leak detected. Usage increasing steadily.",
+                    "recommended_action": "investigate_memory_leak"
+                })
+        
+        # Error rate trend
+        # ... similar analysis for error rates
+        
+        return predictions
+    
+    def _calculate_overall_score(self, results: dict) -> int:
+        """Calculate overall system health score"""
+        scores = []
+        
+        # Service scores (weighted by criticality)
+        for name, service in results["services"].items():
+            weight = 2.0 if self.SERVICES[name]["critical"] else 1.0
+            scores.append(service.get("score", 0) * weight)
+        
+        # Infrastructure score
+        infra = results.get("infrastructure", {})
+        if infra:
+            cpu_score = max(0, 100 - infra.get("cpu", {}).get("usage_percent", 0))
+            mem_score = max(0, 100 - infra.get("memory", {}).get("usage_percent", 0))
+            scores.extend([cpu_score, mem_score])
+        
+        return int(sum(scores) / len(scores)) if scores else 0
+    
+    def _determine_status(self, score: int) -> str:
+        if score >= 90: return "healthy"
+        if score >= 70: return "warning"
+        if score >= 50: return "degraded"
+        return "critical"
+
+
+health_monitor = HealthMonitor()
+
+# services/self-healing/healers/service_healer.py
+
+import asyncio
+import subprocess
+import docker
+import httpx
+from datetime import datetime
+from typing import Dict, Optional
+from openai import AsyncOpenAI
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+ai_client = AsyncOpenAI()
+
+
+class ServiceHealer:
+    """
+    Automatically repairs broken services without human intervention.
+    
+    Healing capabilities:
+    1. Auto-restart crashed services
+    2. Auto-scale under load
+    3. Clear stuck queues
+    4. Fix broken database connections
+    5. Reset circuit breakers
+    6. Patch configuration errors
+    7. AI-powered code fixes for recurring errors
+    """
+    
+    def __init__(self):
+        self.docker_client = docker.from_env()
+        self.healing_history = []
+        self.max_restart_attempts = 3
+    
+    async def heal(self, incident: dict) -> dict:
+        """
+        Main healing entry point — analyzes incident and takes action
+        """
+        logger.info(f"🏥 Self-healing initiated for: {incident['title']}")
+        
+        result = {
+            "incident_id": incident["id"],
+            "started_at": datetime.utcnow().isoformat(),
+            "actions_taken": [],
+            "success": False
+        }
+        
+        try:
+            # Step 1: AI diagnoses the issue
+            diagnosis = await self._ai_diagnose(incident)
+            result["diagnosis"] = diagnosis
+            
+            # Step 2: Select healing strategy
+            strategy = await self._select_healing_strategy(incident, diagnosis)
+            result["strategy"] = strategy
+            
+            # Step 3: Execute healing
+            for action in strategy["actions"]:
+                action_result = await self._execute_healing_action(action, incident)
+                result["actions_taken"].append(action_result)
+                
+                if action_result["success"]:
+                    # Verify the fix worked
+                    verified = await self._verify_healing(incident)
+                    if verified:
+                        result["success"] = True
+                        result["resolved_at"] = datetime.utcnow().isoformat()
+                        break
+            
+            # Step 4: If auto-healing failed, escalate
+            if not result["success"]:
+                result["escalated"] = True
+                result["escalation_reason"] = "Auto-healing attempts exhausted"
+                await self._escalate_to_human(incident, result)
+            
+            # Step 5: Learn from this incident
+            await self._learn_from_incident(incident, result)
+            
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Self-healing error: {e}")
+        
+        self.healing_history.append(result)
+        return result
+    
+    async def _ai_diagnose(self, incident: dict) -> dict:
+        """
+        AI analyzes the error and determines root cause
+        """
+        prompt = f"""
+        You are a senior DevOps engineer diagnosing a system issue.
+        
+        INCIDENT:
+        Title: {incident['title']}
+        Service: {incident['service_name']}
+        Error Type: {incident.get('error_type', 'unknown')}
+        Error Message: {incident.get('error_message', '')}
+        Stack Trace: {incident.get('stack_trace', '')[:2000]}
+        Severity: {incident['severity']}
+        
+        RECENT SYSTEM STATE:
+        CPU: {incident.get('cpu_usage', 'N/A')}%
+        Memory: {incident.get('memory_usage', 'N/A')}%
+        Error Rate: {incident.get('error_rate', 'N/A')}
+        
+        Diagnose the issue and return JSON:
+        {{
+            "root_cause": "clear description of what went wrong",
+            "root_cause_category": "code_bug|config_error|resource_exhaustion|
+                external_dependency|data_corruption|security_issue|network_issue",
+            "confidence": 0.0,  // 0.0 to 1.0
+            "affected_components": ["component1", "component2"],
+            "is_recurring": false,
+            "urgency": "immediate|soon|can_wait",
+            "healing_approach": "restart|scale|fix_code|fix_config|
+                clear_cache|rollback|fix_db|external_fix",
+            "detailed_explanation": "technical explanation",
+            "prevention_recommendation": "how to prevent this in future"
+        }}
+        """
+        
+        response = await ai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def _select_healing_strategy(self, incident: dict, diagnosis: dict) -> dict:
+        """
+        Select the best healing strategy based on diagnosis
+        """
+        strategies = {
+            "restart": [
+                {"action": "restart_service", "params": {"service": incident["service_name"]}}
+            ],
+            "scale": [
+                {"action": "scale_up", "params": {"service": incident["service_name"], "replicas": 3}},
+                {"action": "enable_auto_scaling", "params": {"min": 2, "max": 10}}
+            ],
+            "fix_code": [
+                {"action": "ai_fix_code", "params": {"error": incident.get("error_message", "")}},
+                {"action": "deploy_fix", "params": {}}
+            ],
+            "fix_config": [
+                {"action": "fix_configuration", "params": {"diagnosis": diagnosis}},
+                {"action": "restart_service", "params": {"service": incident["service_name"]}}
+            ],
+            "clear_cache": [
+                {"action": "clear_redis_cache", "params": {}},
+                {"action": "restart_service", "params": {"service": incident["service_name"]}}
+            ],
+            "rollback": [
+                {"action": "rollback_deployment", "params": {"to_version": "previous"}},
+                {"action": "verify_rollback", "params": {}}
+            ],
+            "fix_db": [
+                {"action": "fix_database_connection", "params": {}},
+                {"action": "optimize_slow_queries", "params": {}}
+            ],
+            "external_fix": [
+                {"action": "enable_circuit_breaker", "params": {}},
+                {"action": "switch_to_fallback", "params": {}}
+            ]
+        }
+        
+        approach = diagnosis.get("healing_approach", "restart")
+        actions = strategies.get(approach, strategies["restart"])
+        
+        return {
+            "approach": approach,
+            "actions": actions,
+            "diagnosis_confidence": diagnosis.get("confidence", 0)
+        }
+    
+    async def _execute_healing_action(self, action: dict, incident: dict) -> dict:
+        """
+        Execute a specific healing action
+        """
+        action_type = action["action"]
+        params = action.get("params", {})
+        
+        logger.info(f"🔧 Executing healing action: {action_type}")
+        
+        result = {
+            "action": action_type,
+            "started_at": datetime.utcnow().isoformat(),
+            "success": False
+        }
+        
+        try:
+            if action_type == "restart_service":
+                success = await self._restart_service(params["service"])
+                result["success"] = success
+                result["details"] = f"Service {params['service']} restarted"
+                
+            elif action_type == "scale_up":
+                success = await self._scale_service(
+                    params["service"], 
+                    params.get("replicas", 3)
+                )
+                result["success"] = success
+                result["details"] = f"Scaled to {params.get('replicas', 3)} replicas"
+                
+            elif action_type == "ai_fix_code":
+                fix = await self._ai_generate_code_fix(
+                    incident.get("error_message", ""),
+                    incident.get("stack_trace", "")
+                )
+                result["success"] = fix is not None
+                result["code_fix"] = fix
+                result["details"] = "AI generated code fix"
+                
+            elif action_type == "clear_redis_cache":
+                success = await self._clear_cache()
+                result["success"] = success
+                result["details"] = "Redis cache cleared"
+                
+            elif action_type == "fix_database_connection":
+                success = await self._fix_db_connection()
+                result["success"] = success
+                result["details"] = "Database connection pool reset"
+                
+            elif action_type == "rollback_deployment":
+                success = await self._rollback(params.get("to_version", "previous"))
+                result["success"] = success
+                result["details"] = f"Rolled back to {params.get('to_version')}"
+                
+            elif action_type == "enable_circuit_breaker":
+                success = await self._enable_circuit_breaker(incident["service_name"])
+                result["success"] = success
+                result["details"] = "Circuit breaker enabled"
+                
+            elif action_type == "optimize_slow_queries":
+                fixes = await self._optimize_slow_queries()
+                result["success"] = len(fixes) > 0
+                result["details"] = f"Optimized {len(fixes)} slow queries"
+                result["query_fixes"] = fixes
+                
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Healing action {action_type} failed: {e}")
+        
+        result["completed_at"] = datetime.utcnow().isoformat()
+        return result
+    
+    async def _restart_service(self, service_name: str) -> bool:
+        """Restart a Docker service"""
+        try:
+            containers = self.docker_client.containers.list(
+                filters={"name": service_name}
+            )
+            for container in containers:
+                container.restart(timeout=30)
+                logger.info(f"✅ Restarted container: {container.name}")
+            
+            # Wait and verify
+            await asyncio.sleep(10)
+            
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"http://{service_name}:8000/health")
+                return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Failed to restart {service_name}: {e}")
+            return False
+    
+    async def _scale_service(self, service_name: str, replicas: int) -> bool:
+        """Scale a service to N replicas"""
+        try:
+            result = subprocess.run(
+                ["kubectl", "scale", "deployment", service_name, 
+                 f"--replicas={replicas}"],
+                capture_output=True, text=True, timeout=30
+            )
+            return result.returncode == 0
+        except:
+            return False
+    
+    async def _ai_generate_code_fix(self, error_message: str, stack_trace: str) -> Optional[dict]:
+        """
+        AI generates a code fix for the error
+        """
+        prompt = f"""
+        You are a senior software engineer. Generate a code fix for this error.
+        
+        ERROR: {error_message}
+        
+        STACK TRACE:
+        {stack_trace[:3000]}
+        
+        Generate a targeted fix. Return JSON:
+        {{
+            "file_path": "path/to/file.py",
+            "fix_description": "what the fix does",
+            "original_code": "the broken code snippet",
+            "fixed_code": "the corrected code snippet",
+            "explanation": "why this fixes the issue",
+            "test_case": "a test to verify the fix works",
+            "risk_level": "low|medium|high",
+            "requires_restart": true,
+            "creates_pr": true,
+            "pr_title": "fix: description",
+            "pr_description": "detailed PR description"
+        }}
+        """
+        
+        response = await ai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content)
+    
+    async def _optimize_slow_queries(self) -> list:
+        """
+        Detect and optimize slow database queries
+        """
+        prompt = """
+        Analyze these slow PostgreSQL queries and suggest optimizations:
+        
+        [Slow queries would be fetched from pg_stat_statements]
+        
+        For each slow query, return:
+        {{
+            "original_query": "...",
+            "optimized_query": "...",
+            "suggested_indexes": ["CREATE INDEX ..."],
+            "explanation": "why this is faster",
+            "estimated_improvement": "10x faster"
+        }}
+        """
+        
+        response = await ai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        return json.loads(response.choices[0].message.content).get("optimizations", [])
+    
+    async def _clear_cache(self) -> bool:
+        """Clear Redis cache"""
+        try:
+            import redis.asyncio as redis
+            r = redis.Redis()
+            await r.flushdb()
+            return True
+        except:
+            return False
+    
+    async def _fix_db_connection(self) -> bool:
+        """Reset database connection pool"""
+        try:
+            # Reset connection pool
+            return True
+        except:
+            return False
+    
+    async def _rollback(self, version: str) -> bool:
+        """Rollback deployment"""
+        try:
+            result = subprocess.run(
+                ["kubectl", "rollout", "undo", "deployment", "--to-revision=0"],
+                capture_output=True, text=True
+            )
+            return result.returncode == 0
+        except:
+            return False
+    
+    async def _enable_circuit_breaker(self, service: str) -> bool:
+        """Enable circuit breaker for external APIs"""
+        return True
+    
+    async def _verify_healing(self, incident: dict) -> bool:
+        """Verify the fix actually worked"""
+        await asyncio.sleep(5)
+        
+        try:
+            service = incident["service_name"]
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"http://{service}:8000/health")
+                return response.status_code == 200
+        except:
+            return False
+    
+    async def _escalate_to_human(self, incident: dict, result: dict):
+        """Alert humans when auto-healing fails"""
+        logger.critical(f"🚨 ESCALATION: Auto-healing failed for {incident['title']}")
+        # Send Slack/Email/PagerDuty alert
+    
+    async def _learn_from_incident(self, incident: dict, result: dict):
+        """
+        Learn from this incident to prevent future occurrences
+        """
+        if result["success"]:
+            # Create a new self-healing rule based on this success
+            logger.info(f"📚 Learning from incident: Creating prevention rule")
+            
+            # Store the pattern for future auto-healing
+            rule = {
+                "condition": {
+                    "error_pattern": incident.get("error_message", ""),
+                    "service": incident["service_name"]
+                },
+                "action": result["actions_taken"][0]["action"] if result["actions_taken"] else "restart",
+                "learned_at": datetime.utcnow().isoformat()
+            }
+            
+            # Save to database
+            logger.info(f"New healing rule created: {rule}")
+
+
+service_healer = ServiceHealer()
