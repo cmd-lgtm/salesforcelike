@@ -14,7 +14,8 @@
       "Bash(git add:*)",
       "Bash(git checkout:*)",
       "Bash(git commit:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWx4a3F5eDIwMDA3cndsaHJmcW40ZDk2Iiwib3JnX2lkIjoiY21seGtxeHh5MDAwM3J3bGhwYmR3YXVpaCIsInJvbGUiOiJBRE1JTiIsImVtYWlsIjoidGVzdDNAZXhhbXBsZS5jb20iLCJ0eXBlIjoiYWNjZXNzIiwianRpIjoiMjczNDA4NjctZmY0NS00MjFmLTlkYmUtZDAzNzY1OTVkNzk2IiwidG9rZW5fZmFtaWx5IjoiMjE2YmQyNjItMjE0ZC00MTkwLWI3MGUtYjdiMjUzODdjMWNiIiwiaWF0IjoxNzcxNzU0Mjc0LCJleHAiOjE3NzE3NTUxNzR9.chc56yYSATpgD-WvknWriGLLlCgf6JYAY9uAexMaK0w\")"
     ]
   }
 }
