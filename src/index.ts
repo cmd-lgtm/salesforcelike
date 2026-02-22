@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import config from './config';
 import { logger } from './shared/logger';
-import { prisma } from './config/database';
+import { prisma, db } from './config/database';
 import { getRedisClient } from './config/redis';
 import { startWorkers, stopWorkers } from './shared/workers';
 import { closeAllQueues } from './shared/queue';
@@ -71,8 +71,19 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.get('/health', async (_req: Request, res: Response) => {
     try {
-        // Check database connection
+        // Check primary database connection
         await prisma.$queryRaw`SELECT 1`;
+
+        // Check replica connection if configured
+        let replicaStatus = db.hasReplica ? 'not_configured' : 'no_replica';
+        if (db.hasReplica && db.replica) {
+            try {
+                await db.replica.$queryRaw`SELECT 1`;
+                replicaStatus = 'connected';
+            } catch {
+                replicaStatus = 'disconnected';
+            }
+        }
 
         // Check Redis connection
         const redis = await getRedisClient();
@@ -85,6 +96,7 @@ app.get('/health', async (_req: Request, res: Response) => {
                 timestamp: new Date().toISOString(),
                 services: {
                     database: 'connected',
+                    databaseReplica: replicaStatus,
                     redis: 'connected',
                 },
             },

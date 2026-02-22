@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Primary Database
   postgres:
     image: postgres:16-alpine
     container_name: salesforcelike-postgres
@@ -29,13 +29,74 @@ services:
       - -c=work_mem=4MB
       - -c=min_wal_size=1GB
       - -c=max_wal_size=4GB
+      # Enable replication
+      - -c=wal_level=replica
+      - -c=hot_standby=on
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U crm_user -d salesforcelike" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # PgBouncer Connection Pooler
+  # PostgreSQL Read Replica 1
+  postgres-replica-1:
+    image: postgres:16-alpine
+    container_name: salesforcelike-postgres-replica-1
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password
+      POSTGRES_DB: salesforcelike
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica1_data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c=hot_standby=on
+      - -c=hot_standby_feedback=on
+      - -c=max_connections=100
+      - -c=shared_buffers=128MB
+      - -c=work_mem=2MB
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U crm_user -d salesforcelike" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL Read Replica 2
+  postgres-replica-2:
+    image: postgres:16-alpine
+    container_name: salesforcelike-postgres-replica-2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password
+      POSTGRES_DB: salesforcelike
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica2_data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c=hot_standby=on
+      - -c=hot_standby_feedback=on
+      - -c=max_connections=100
+      - -c=shared_buffers=128MB
+      - -c=work_mem=2MB
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U crm_user -d salesforcelike" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgBouncer Connection Pooler (for writes)
   pgbouncer:
     image: pgbouncer/pgbouncer:latest
     container_name: salesforcelike-pgbouncer
@@ -55,6 +116,29 @@ services:
       - "6432:5432"
     depends_on:
       postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h localhost -p 5432 -U pgbouncer" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PgBouncer for Read Replicas (for reads)
+  pgbouncer-read:
+    image: pgbouncer/pgbouncer:latest
+    container_name: salesforcelike-pgbouncer-read
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://crm_user:crm_password@postgres-replica-1:5432/salesforcelike
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 5
+      SERVER_RESET_COMMAND: DISCARD ALL
+    ports:
+      - "6433:5432"
+    depends_on:
+      postgres-replica-1:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -h localhost -p 5432 -U pgbouncer" ]
@@ -96,6 +180,10 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  postgres_replica1_data:
+    driver: local
+  postgres_replica2_data:
     driver: local
   redis_data:
     driver: local

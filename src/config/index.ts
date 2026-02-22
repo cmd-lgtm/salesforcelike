@@ -6,6 +6,7 @@ export const config = {
     // Database
     database: {
         url: process.env.DATABASE_URL || 'postgresql://crm_user:crm_password@localhost:5432/salesforcelike',
+        replicaUrl: process.env.DATABASE_REPLICA_URL || '',
     },
 
     // Redis
