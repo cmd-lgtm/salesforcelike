@@ -28,24 +28,26 @@ model Organization {
   updatedAt        DateTime  @updatedAt
 
   // Relations
-  users            User[]
-  leads            Lead[]
-  accounts         Account[]
-  contacts         Contact[]
-  opportunities    Opportunity[]
-  activities       Activity[]
-  tasks            Task[]
-  apiKeys          APIKey[]
-  auditLogs        AuditLog[]
-  billingRecords   BillingRecord[]
-  aiAgents         AIAgent[]
-  aiAgentActions   AIAgentAction[]
-  automations      Automation[]
-  nlQueries        NLQuery[]
-  emailTemplates   EmailTemplate[]
-  emailSequences   EmailSequence[]
-  meetings         Meeting[]
-  revenueForecasts RevenueForecast[]
+  users              User[]
+  leads              Lead[]
+  accounts           Account[]
+  contacts           Contact[]
+  opportunities      Opportunity[]
+  activities         Activity[]
+  tasks              Task[]
+  apiKeys            APIKey[]
+  auditLogs          AuditLog[]
+  billingRecords     BillingRecord[]
+  aiAgents           AIAgent[]
+  aiAgentActions     AIAgentAction[]
+  automations        Automation[]
+  nlQueries          NLQuery[]
+  emailTemplates     EmailTemplate[]
+  emailSequences     EmailSequence[]
+  meetings           Meeting[]
+  revenueForecasts  RevenueForecast[]
+  notifications      Notification[]
+  notificationPreferences NotificationPreferences[]
 
   @@index([isActive])
   @@index([planType])
@@ -101,6 +103,10 @@ model User {
   createdAutomations Automation[]    @relation("AutomationCreator")
   nlQueries          NLQuery[]
   organizedMeetings  Meeting[]
+
+  // Notification relations
+  notifications             Notification[]
+  notificationPreferences  NotificationPreferences[]
 
   // Constraints
   @@unique([orgId, email])
@@ -1057,6 +1063,90 @@ model BillingRecord {
   stripeEventId   String?          @unique
   metadata        Json?
   createdAt       DateTime         @default(now())
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum NotificationPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  SLACK
+  IN_APP
+}
+
+model Notification {
+  id          String               @id @default(cuid())
+  orgId       String
+  userId      String
+  title       String
+  message     String               @db.Text
+  channels    NotificationChannel[]
+  priority    NotificationPriority @default(MEDIUM)
+  status      NotificationStatus   @default(PENDING)
+  entityType  String?
+  entityId    String?
+  actionUrl   String?
+  scheduledAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model NotificationPreferences {
+  id                    String  @id @default(cuid())
+  orgId                 String
+  userId                String
+
+  // Channel preferences
+  emailEnabled          Boolean @default(true)
+  smsEnabled            Boolean @default(false)
+  pushEnabled           Boolean @default(true)
+  slackEnabled          Boolean @default(false)
+  inAppEnabled         Boolean @default(true)
+
+  // Notification type preferences
+  dealUpdatesEnabled    Boolean @default(true)
+  taskRemindersEnabled  Boolean @default(true)
+  meetingRemindersEnabled Boolean @default(true)
+  leadAlertsEnabled     Boolean @default(true)
+  systemAlertsEnabled   Boolean @default(true)
+  weeklyDigestEnabled   Boolean @default(false)
+
+  // Timestamps
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+}
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
