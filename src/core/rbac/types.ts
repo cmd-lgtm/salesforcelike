@@ -73,6 +73,36 @@ export enum Permission {
     // Audit
     AUDIT_READ = 'audit:read',
     AUDIT_EXPORT = 'audit:export',
+
+    // Meetings
+    MEETING_CREATE = 'meeting:create',
+    MEETING_READ = 'meeting:read',
+    MEETING_UPDATE = 'meeting:update',
+    MEETING_DELETE = 'meeting:delete',
+    MEETING_AI_ANALYSIS = 'meeting:ai_analysis',
+
+    // Email
+    EMAIL_CREATE = 'email:create',
+    EMAIL_READ = 'email:read',
+    EMAIL_SEND = 'email:send',
+
+    // Automation
+    AUTOMATION_CREATE = 'automation:create',
+    AUTOMATION_READ = 'automation:read',
+    AUTOMATION_UPDATE = 'automation:update',
+    AUTOMATION_DELETE = 'automation:delete',
+    AUTOMATION_EXECUTE = 'automation:execute',
+
+    // Analytics
+    ANALYTICS_READ = 'analytics:read',
+    FORECAST_READ = 'forecast:read',
+
+    // Enrichment
+    ENRICHMENT_RUN = 'enrichment:run',
+
+    // Notifications
+    NOTIFICATION_SEND = 'notification:send',
+    NOTIFICATION_READ = 'notification:read',
 }
 
 // Role to Permission mapping
@@ -114,6 +144,24 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         Permission.EXPORT_CREATE,
         Permission.AUDIT_READ,
         Permission.AUDIT_EXPORT,
+        Permission.MEETING_CREATE,
+        Permission.MEETING_READ,
+        Permission.MEETING_UPDATE,
+        Permission.MEETING_DELETE,
+        Permission.MEETING_AI_ANALYSIS,
+        Permission.EMAIL_CREATE,
+        Permission.EMAIL_READ,
+        Permission.EMAIL_SEND,
+        Permission.AUTOMATION_CREATE,
+        Permission.AUTOMATION_READ,
+        Permission.AUTOMATION_UPDATE,
+        Permission.AUTOMATION_DELETE,
+        Permission.AUTOMATION_EXECUTE,
+        Permission.ANALYTICS_READ,
+        Permission.FORECAST_READ,
+        Permission.ENRICHMENT_RUN,
+        Permission.NOTIFICATION_SEND,
+        Permission.NOTIFICATION_READ,
     ],
 
     [Role.REP]: [
@@ -143,6 +191,14 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         Permission.TASK_COMPLETE,
         Permission.REPORT_RUN,
         Permission.EXPORT_CREATE,
+        Permission.MEETING_CREATE,
+        Permission.MEETING_READ,
+        Permission.MEETING_UPDATE,
+        Permission.MEETING_AI_ANALYSIS,
+        Permission.EMAIL_CREATE,
+        Permission.EMAIL_READ,
+        Permission.EMAIL_SEND,
+        Permission.NOTIFICATION_READ,
     ],
 
     [Role.READ_ONLY]: [
@@ -155,6 +211,12 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         Permission.ACTIVITY_READ,
         Permission.TASK_READ,
         Permission.REPORT_RUN,
+        Permission.MEETING_READ,
+        Permission.EMAIL_READ,
+        Permission.AUTOMATION_READ,
+        Permission.ANALYTICS_READ,
+        Permission.FORECAST_READ,
+        Permission.NOTIFICATION_READ,
     ],
 };
 

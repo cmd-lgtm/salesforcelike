@@ -29,6 +29,12 @@ import auditRoutes from './api/routes/audit.routes';
 import billingRoutes from './api/routes/billing.routes';
 import aiRoutes from './api/routes/ai.routes';
 import healthRoutes from './api/routes/health.routes';
+import meetingRoutes from './api/routes/meeting.routes';
+import emailRoutes from './api/routes/email.routes';
+import automationRoutes from './api/routes/automation.routes';
+import analyticsRoutes from './api/routes/analytics.routes';
+import enrichmentRoutes from './api/routes/enrichment.routes';
+import notificationRoutes from './api/routes/notification.routes';
 
 // Import middleware
 import { errorHandler } from './api/middleware/error-handler';
@@ -114,6 +120,25 @@ app.get('/health', async (_req: Request, res: Response) => {
 });
 
 // ============================================
+// STATIC FILES
+// ============================================
+
+// Serve static files under /static prefix to avoid conflicts with API routes
+import path from 'path';
+app.use('/static', express.static(path.join(__dirname, '../frontend'), {
+    maxAge: '1d', // Cache for 1 day
+    etag: true,
+    fallthrough: true,
+    dotfiles: 'deny', // Prevent access to hidden files
+    setHeaders: (res, filePath) => {
+        // Add immutable cache for versioned/bundled files
+        if (filePath.includes('.') && !filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+    }
+}));
+
+// ============================================
 // API ROUTES
 // ============================================
 
@@ -138,6 +163,12 @@ app.use(`${apiPrefix}/audit-logs`, auditRoutes);
 app.use(`${apiPrefix}/billing`, billingRoutes);
 app.use(`${apiPrefix}/ai`, aiRoutes);
 app.use(`${apiPrefix}/health`, healthRoutes);
+app.use(`${apiPrefix}/meetings`, meetingRoutes);
+app.use(`${apiPrefix}/email`, emailRoutes);
+app.use(`${apiPrefix}/automations`, automationRoutes);
+app.use(`${apiPrefix}/analytics`, analyticsRoutes);
+app.use(`${apiPrefix}/enrichment`, enrichmentRoutes);
+app.use(`${apiPrefix}/notifications`, notificationRoutes);
 
 // ============================================
 // ERROR HANDLING
@@ -180,9 +211,43 @@ async function startServer() {
         logger.info('Session cleanup scheduler started');
 
         // Start server
-        app.listen(config.app.port, () => {
-            logger.info(`Server running on port ${config.app.port} in ${config.app.nodeEnv} mode`);
-            logger.info(`Health check available at http://localhost:${config.app.port}/health`);
+        const server = app.listen(config.app.port, () => {
+            const { port, nodeEnv, apiBaseUrl } = config.app;
+
+            // Structured logging with metadata for observability
+            logger.info('Server started', {
+                port,
+                environment: nodeEnv,
+                baseUrl: apiBaseUrl,
+                pid: process.pid,
+                nodeVersion: process.version,
+            });
+
+            // Health check URL from centralized config
+            const healthUrl = `${apiBaseUrl}/health`;
+            logger.info('Application ready', {
+                healthCheckUrl: healthUrl,
+                endpoints: {
+                    health: healthUrl,
+                    api: `${apiBaseUrl}/api/v1`,
+                },
+            });
+        });
+
+        // Handle server-level errors (port conflicts, permissions)
+        server.on('error', (error: NodeJS.ErrnoException) => {
+            const errorMessages: Record<string, string> = {
+                EADDRINUSE: 'Port is already in use',
+                EACCES: 'Insufficient permissions to bind to port',
+            };
+            // Sanitize: only use known error codes or generic message
+            const errorCode = error.code || '';
+            const errorMessage = errorMessages[errorCode] || 'Failed to start server';
+            logger.error(`Server startup failed: ${errorMessage}`, {
+                code: error.code,
+                port: config.app.port,
+            });
+            process.exit(1);
         });
     } catch (error) {
         logger.error('Failed to start server:', error);

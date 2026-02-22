@@ -1,0 +1,739 @@
+COMPLETE DATABASE SCHEMA (50+ Tables)
+-- ============================================
+-- NEXUSCRM AI - ENTERPRISE DATABASE SCHEMA
+-- ============================================
+
+-- ==================
+-- CORE: ORGANIZATIONS & USERS
+-- ==================
+
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    domain TEXT,
+    logo_url TEXT,
+    plan TEXT DEFAULT 'starter', -- starter, professional, enterprise
+    seats_limit INTEGER DEFAULT 5,
+    settings JSONB DEFAULT '{}',
+    ai_config JSONB DEFAULT '{
+        "auto_enrichment": true,
+        "ai_email_writing": true,
+        "deal_scoring": true,
+        "self_healing": true,
+        "meeting_copilot": true
+    }',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    full_name TEXT NOT NULL,
+    avatar_url TEXT,
+    role TEXT DEFAULT 'rep', -- admin, manager, rep, viewer
+    title TEXT,
+    phone TEXT,
+    timezone TEXT DEFAULT 'UTC',
+    
+    -- AI Personalization
+    ai_writing_style JSONB DEFAULT '{}', -- Learned from past emails
+    ai_preferences JSONB DEFAULT '{}',
+    daily_brief_time TEXT DEFAULT '08:00',
+    
+    -- Performance tracking
+    quota DECIMAL(12,2) DEFAULT 0,
+    quota_attainment DECIMAL(5,2) DEFAULT 0,
+    
+    is_active BOOLEAN DEFAULT TRUE,
+    last_active_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE teams (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    name TEXT NOT NULL,
+    manager_id UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE team_members (
+    team_id UUID REFERENCES teams(id),
+    user_id UUID REFERENCES users(id),
+    PRIMARY KEY (team_id, user_id)
+);
+
+-- ==================
+-- CRM: CONTACTS & COMPANIES
+-- ==================
+
+CREATE TABLE companies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    -- Basic Info
+    name TEXT NOT NULL,
+    domain TEXT,
+    website TEXT,
+    industry TEXT,
+    sub_industry TEXT,
+    
+    -- Size & Revenue
+    employee_count INTEGER,
+    employee_range TEXT, -- "1-10", "11-50", "51-200", etc.
+    annual_revenue DECIMAL(15,2),
+    revenue_range TEXT,
+    
+    -- Location
+    address TEXT,
+    city TEXT,
+    state TEXT,
+    country TEXT,
+    timezone TEXT,
+    
+    -- AI-Enriched Data
+    description TEXT,
+    tech_stack TEXT[], -- ["Salesforce", "Slack", "AWS"]
+    funding_stage TEXT,
+    total_funding DECIMAL(15,2),
+    last_funding_date DATE,
+    
+    -- Social
+    linkedin_url TEXT,
+    twitter_url TEXT,
+    crunchbase_url TEXT,
+    
+    -- AI Scores
+    fit_score INTEGER DEFAULT 0, -- 0-100 ideal customer fit
+    intent_score INTEGER DEFAULT 0, -- 0-100 buying intent
+    health_score INTEGER DEFAULT 0, -- 0-100 relationship health
+    
+    -- Tags & Classification
+    tags TEXT[],
+    lifecycle_stage TEXT DEFAULT 'prospect', -- prospect, customer, churned, partner
+    
+    -- AI Metadata
+    last_enriched_at TIMESTAMP,
+    enrichment_source TEXT,
+    ai_summary TEXT, -- AI-generated company summary
+    ai_insights JSONB DEFAULT '[]', -- AI-detected insights
+    
+    -- Ownership
+    owner_id UUID REFERENCES users(id),
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE contacts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    company_id UUID REFERENCES companies(id),
+    
+    -- Basic Info
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    mobile TEXT,
+    
+    -- Professional
+    title TEXT,
+    department TEXT,
+    seniority TEXT, -- C-level, VP, Director, Manager, IC
+    linkedin_url TEXT,
+    
+    -- AI-Enriched
+    bio TEXT,
+    past_companies TEXT[],
+    skills TEXT[],
+    education TEXT,
+    mutual_connections INTEGER DEFAULT 0,
+    
+    -- AI Scores
+    lead_score INTEGER DEFAULT 0, -- 0-100
+    engagement_score INTEGER DEFAULT 0,
+    decision_maker_probability DECIMAL(3,2) DEFAULT 0,
+    
+    -- Communication Preferences
+    preferred_channel TEXT DEFAULT 'email', -- email, phone, linkedin
+    best_contact_time TEXT,
+    communication_style TEXT, -- formal, casual, technical
+    
+    -- AI Relationship Analysis
+    relationship_strength INTEGER DEFAULT 0, -- 0-100
+    last_interaction_summary TEXT,
+    ai_personality_profile JSONB DEFAULT '{}',
+    sentiment_trend TEXT DEFAULT 'neutral', -- positive, neutral, negative, declining
+    
+    -- Tags & Status
+    tags TEXT[],
+    lifecycle_stage TEXT DEFAULT 'lead', -- lead, mql, sql, customer, evangelist, churned
+    status TEXT DEFAULT 'active', -- active, inactive, bounced, unsubscribed
+    source TEXT, -- website, referral, linkedin, event, cold_outreach
+    
+    -- Ownership
+    owner_id UUID REFERENCES users(id),
+    
+    -- De-duplication
+    normalized_email TEXT GENERATED ALWAYS AS (LOWER(TRIM(email))) STORED,
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- CRM: DEALS & PIPELINE
+-- ==================
+
+CREATE TABLE pipelines (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    name TEXT NOT NULL,
+    is_default BOOLEAN DEFAULT FALSE,
+    deal_rot_days INTEGER DEFAULT 14, -- days before deal marked stale
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE pipeline_stages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id UUID REFERENCES pipelines(id),
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    probability DECIMAL(3,2) DEFAULT 0, -- default win probability
+    stage_type TEXT DEFAULT 'active', -- active, won, lost
+    
+    -- AI automation triggers
+    auto_tasks JSONB DEFAULT '[]', -- auto-create tasks at this stage
+    required_fields TEXT[], -- fields that must be filled
+    exit_criteria JSONB DEFAULT '{}', -- conditions to move forward
+    
+    color TEXT DEFAULT '#6366f1'
+);
+
+CREATE TABLE deals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    pipeline_id UUID REFERENCES pipelines(id),
+    stage_id UUID REFERENCES pipeline_stages(id),
+    
+    -- Basic Info
+    name TEXT NOT NULL,
+    amount DECIMAL(12,2) DEFAULT 0,
+    currency TEXT DEFAULT 'USD',
+    
+    -- Timeline
+    expected_close_date DATE,
+    actual_close_date DATE,
+    days_in_pipeline INTEGER DEFAULT 0,
+    days_in_current_stage INTEGER DEFAULT 0,
+    
+    -- Relationships
+    company_id UUID REFERENCES companies(id),
+    primary_contact_id UUID REFERENCES contacts(id),
+    owner_id UUID REFERENCES users(id),
+    
+    -- Deal Details
+    deal_type TEXT, -- new_business, expansion, renewal
+    source TEXT,
+    competitors TEXT[],
+    loss_reason TEXT,
+    win_reason TEXT,
+    next_step TEXT,
+    
+    -- AI Intelligence
+    ai_win_probability DECIMAL(5,4) DEFAULT 0, -- 0.0000 to 1.0000
+    ai_risk_level TEXT DEFAULT 'low', -- low, medium, high, critical
+    ai_risk_factors JSONB DEFAULT '[]',
+    ai_recommended_actions JSONB DEFAULT '[]',
+    ai_predicted_close_date DATE,
+    ai_deal_summary TEXT,
+    ai_engagement_score INTEGER DEFAULT 0, -- 0-100
+    ai_momentum TEXT DEFAULT 'neutral', -- accelerating, neutral, stalling, dying
+    
+    -- Scoring Signals
+    champion_identified BOOLEAN DEFAULT FALSE,
+    decision_maker_engaged BOOLEAN DEFAULT FALSE,
+    budget_confirmed BOOLEAN DEFAULT FALSE,
+    timeline_confirmed BOOLEAN DEFAULT FALSE,
+    proposal_sent BOOLEAN DEFAULT FALSE,
+    competitors_known BOOLEAN DEFAULT FALSE,
+    
+    -- Custom Fields
+    custom_fields JSONB DEFAULT '{}',
+    tags TEXT[],
+    
+    -- Status
+    status TEXT DEFAULT 'open', -- open, won, lost, abandoned
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Deal stage history for velocity tracking
+CREATE TABLE deal_stage_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    deal_id UUID REFERENCES deals(id),
+    from_stage_id UUID REFERENCES pipeline_stages(id),
+    to_stage_id UUID REFERENCES pipeline_stages(id),
+    changed_by UUID REFERENCES users(id),
+    changed_by_ai BOOLEAN DEFAULT FALSE,
+    duration_in_previous_stage INTERVAL,
+    ai_note TEXT, -- why AI moved it
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- ACTIVITIES & TIMELINE
+-- ==================
+
+CREATE TABLE activities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    -- What
+    activity_type TEXT NOT NULL, -- email, call, meeting, note, task, linkedin_message
+    subject TEXT,
+    body TEXT,
+    
+    -- Who
+    user_id UUID REFERENCES users(id), -- who performed it
+    contact_id UUID REFERENCES contacts(id),
+    company_id UUID REFERENCES companies(id),
+    deal_id UUID REFERENCES deals(id),
+    
+    -- When
+    activity_date TIMESTAMP DEFAULT NOW(),
+    duration_minutes INTEGER,
+    
+    -- AI Analysis
+    ai_sentiment TEXT, -- positive, neutral, negative
+    ai_sentiment_score DECIMAL(3,2), -- -1.0 to 1.0
+    ai_summary TEXT,
+    ai_action_items JSONB DEFAULT '[]',
+    ai_key_topics TEXT[],
+    ai_buying_signals JSONB DEFAULT '[]',
+    ai_objections JSONB DEFAULT '[]',
+    ai_next_best_action TEXT,
+    
+    -- Email specific
+    email_direction TEXT, -- inbound, outbound
+    email_opened BOOLEAN DEFAULT FALSE,
+    email_clicked BOOLEAN DEFAULT FALSE,
+    email_replied BOOLEAN DEFAULT FALSE,
+    
+    -- Call specific
+    call_direction TEXT, -- inbound, outbound
+    call_recording_url TEXT,
+    call_transcript TEXT,
+    talk_to_listen_ratio DECIMAL(3,2),
+    
+    -- Meeting specific
+    meeting_attendees TEXT[],
+    meeting_recording_url TEXT,
+    meeting_transcript TEXT,
+    
+    -- Metadata
+    source TEXT DEFAULT 'manual', -- manual, ai_generated, synced, automation
+    is_automated BOOLEAN DEFAULT FALSE,
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- AI AGENTS & AUTOMATIONS
+-- ==================
+
+CREATE TABLE ai_agents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    name TEXT NOT NULL, -- "Deal Closer", "Follow-up Bot", "Research Agent"
+    agent_type TEXT NOT NULL, -- sales, email, research, coaching, workflow
+    
+    -- Configuration
+    model TEXT DEFAULT 'gpt-4o', -- which AI model
+    system_prompt TEXT, -- base instructions
+    temperature DECIMAL(2,1) DEFAULT 0.7,
+    
+    -- Permissions
+    can_send_emails BOOLEAN DEFAULT FALSE,
+    can_update_deals BOOLEAN DEFAULT FALSE,
+    can_create_tasks BOOLEAN DEFAULT FALSE,
+    can_schedule_meetings BOOLEAN DEFAULT FALSE,
+    max_actions_per_day INTEGER DEFAULT 50,
+    requires_approval BOOLEAN DEFAULT TRUE,
+    
+    -- Learning
+    training_data JSONB DEFAULT '{}',
+    performance_metrics JSONB DEFAULT '{}',
+    
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE ai_agent_actions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID REFERENCES ai_agents(id),
+    org_id UUID REFERENCES organizations(id),
+    
+    action_type TEXT NOT NULL, -- send_email, update_deal, create_task, etc.
+    action_data JSONB NOT NULL, -- action details
+    
+    -- Context
+    deal_id UUID REFERENCES deals(id),
+    contact_id UUID REFERENCES contacts(id),
+    
+    -- Approval
+    status TEXT DEFAULT 'pending', -- pending, approved, rejected, executed
+    approved_by UUID REFERENCES users(id),
+    
+    -- Results
+    result JSONB,
+    execution_time_ms INTEGER,
+    
+    -- Learning
+    feedback TEXT, -- good, bad, neutral
+    feedback_note TEXT,
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    executed_at TIMESTAMP
+);
+
+CREATE TABLE automations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    name TEXT NOT NULL,
+    description TEXT,
+    
+    -- Natural language definition
+    nl_definition TEXT, -- "When deal reaches $100K, alert VP"
+    
+    -- Parsed rule
+    trigger_type TEXT NOT NULL, -- deal_stage_change, time_based, field_change, etc.
+    trigger_conditions JSONB NOT NULL,
+    action_type TEXT NOT NULL, -- send_email, create_task, update_field, etc.
+    action_config JSONB NOT NULL,
+    
+    -- Self-optimization
+    times_triggered INTEGER DEFAULT 0,
+    success_rate DECIMAL(5,2) DEFAULT 0,
+    ai_optimized BOOLEAN DEFAULT FALSE,
+    last_optimization_note TEXT,
+    
+    is_active BOOLEAN DEFAULT TRUE,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- SELF-HEALING SYSTEM
+-- ==================
+
+CREATE TABLE system_health (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    service_name TEXT NOT NULL,
+    health_status TEXT NOT NULL, -- healthy, degraded, critical, down
+    
+    -- Metrics
+    cpu_usage DECIMAL(5,2),
+    memory_usage DECIMAL(5,2),
+    disk_usage DECIMAL(5,2),
+    request_latency_p50 INTEGER, -- milliseconds
+    request_latency_p99 INTEGER,
+    error_rate DECIMAL(5,4),
+    requests_per_second DECIMAL(10,2),
+    
+    -- AI Analysis
+    ai_health_score INTEGER DEFAULT 100, -- 0-100
+    ai_predicted_issues JSONB DEFAULT '[]',
+    ai_recommendations JSONB DEFAULT '[]',
+    
+    recorded_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE incidents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    -- What happened
+    title TEXT NOT NULL,
+    description TEXT,
+    severity TEXT NOT NULL, -- critical, high, medium, low
+    service_name TEXT NOT NULL,
+    error_type TEXT, -- runtime_error, timeout, memory_leak, etc.
+    error_message TEXT,
+    stack_trace TEXT,
+    
+    -- AI Analysis
+    ai_root_cause TEXT,
+    ai_diagnosis JSONB DEFAULT '{}',
+    ai_fix_suggestion TEXT,
+    ai_fix_code TEXT, -- Suggested code fix
+    ai_similar_incidents JSONB DEFAULT '[]',
+    
+    -- Resolution
+    status TEXT DEFAULT 'detected', -- detected, diagnosing, healing, resolved, escalated
+    resolution_type TEXT, -- auto_healed, manual, escalated
+    resolution_notes TEXT,
+    resolution_time_seconds INTEGER,
+    
+    -- Auto-healing
+    auto_heal_attempted BOOLEAN DEFAULT FALSE,
+    auto_heal_successful BOOLEAN DEFAULT FALSE,
+    auto_heal_action TEXT, -- what the system did to fix it
+    
+    -- Learning
+    recurrence_count INTEGER DEFAULT 0,
+    prevention_rule_created BOOLEAN DEFAULT FALSE,
+    
+    detected_at TIMESTAMP DEFAULT NOW(),
+    resolved_at TIMESTAMP
+);
+
+CREATE TABLE self_healing_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    name TEXT NOT NULL,
+    description TEXT,
+    
+    -- Trigger
+    condition_type TEXT, -- error_pattern, metric_threshold, anomaly_detected
+    condition_config JSONB NOT NULL,
+    
+    -- Action
+    heal_action TEXT, -- restart_service, scale_up, clear_cache, fix_query, rollback
+    heal_config JSONB NOT NULL,
+    
+    -- Learning
+    times_triggered INTEGER DEFAULT 0,
+    success_rate DECIMAL(5,2) DEFAULT 100,
+    last_triggered_at TIMESTAMP,
+    learned_from_incident_id UUID REFERENCES incidents(id),
+    
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- NATURAL LANGUAGE QUERIES
+-- ==================
+
+CREATE TABLE nl_queries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    org_id UUID REFERENCES organizations(id),
+    
+    -- Input
+    query TEXT NOT NULL, -- "Show me deals closing this month"
+    
+    -- Processing
+    detected_intent TEXT, -- query, action, report, insight
+    generated_sql TEXT,
+    generated_action JSONB,
+    
+    -- Output
+    response TEXT,
+    result_data JSONB,
+    visualization_type TEXT, -- table, chart, card, pipeline
+    
+    -- Feedback
+    was_helpful BOOLEAN,
+    correction TEXT,
+    
+    execution_time_ms INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- EMAILS & SEQUENCES
+-- ==================
+
+CREATE TABLE email_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    
+    -- AI
+    ai_generated BOOLEAN DEFAULT FALSE,
+    performance_score INTEGER DEFAULT 0,
+    open_rate DECIMAL(5,2) DEFAULT 0,
+    reply_rate DECIMAL(5,2) DEFAULT 0,
+    
+    category TEXT, -- cold_outreach, follow_up, proposal, breakup
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE email_sequences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    name TEXT NOT NULL,
+    description TEXT,
+    
+    -- AI Config
+    ai_adaptive BOOLEAN DEFAULT TRUE, -- AI adjusts based on responses
+    ai_personalization_level TEXT DEFAULT 'high', -- low, medium, high
+    
+    status TEXT DEFAULT 'active',
+    total_enrolled INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE email_sequence_steps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sequence_id UUID REFERENCES email_sequences(id),
+    
+    step_number INTEGER NOT NULL,
+    delay_days INTEGER DEFAULT 1,
+    
+    template_id UUID REFERENCES email_templates(id),
+    
+    -- AI overrides
+    ai_rewrite_enabled BOOLEAN DEFAULT TRUE,
+    ai_send_time_optimization BOOLEAN DEFAULT TRUE,
+    
+    -- Performance
+    sent_count INTEGER DEFAULT 0,
+    open_count INTEGER DEFAULT 0,
+    reply_count INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- MEETINGS & CALLS
+-- ==================
+
+CREATE TABLE meetings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    title TEXT NOT NULL,
+    description TEXT,
+    
+    -- Scheduling
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    timezone TEXT,
+    
+    -- Platform
+    meeting_platform TEXT, -- zoom, google_meet, teams
+    meeting_url TEXT,
+    
+    -- Participants
+    organizer_id UUID REFERENCES users(id),
+    deal_id UUID REFERENCES deals(id),
+    
+    -- AI Copilot
+    copilot_enabled BOOLEAN DEFAULT TRUE,
+    copilot_mode TEXT DEFAULT 'passive', -- passive (suggestions), active (speaks)
+    
+    -- Recording & Analysis
+    recording_url TEXT,
+    transcript TEXT,
+    
+    -- AI Analysis
+    ai_summary TEXT,
+    ai_action_items JSONB DEFAULT '[]',
+    ai_key_moments JSONB DEFAULT '[]', -- important moments with timestamps
+    ai_sentiment_timeline JSONB DEFAULT '[]', -- sentiment over time
+    ai_talk_ratio JSONB DEFAULT '{}', -- who talked how much
+    ai_questions_asked JSONB DEFAULT '[]',
+    ai_objections JSONB DEFAULT '[]',
+    ai_buying_signals JSONB DEFAULT '[]',
+    ai_coaching_feedback JSONB DEFAULT '[]',
+    ai_deal_impact TEXT, -- positive, neutral, negative
+    ai_next_steps TEXT,
+    
+    status TEXT DEFAULT 'scheduled', -- scheduled, in_progress, completed, cancelled
+    
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- FORECASTING & ANALYTICS
+-- ==================
+
+CREATE TABLE revenue_forecasts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID REFERENCES organizations(id),
+    
+    forecast_period TEXT, -- "2024-Q4", "2024-12"
+    forecast_type TEXT, -- monthly, quarterly, annual
+    
+    -- AI Predictions
+    ai_best_case DECIMAL(12,2),
+    ai_most_likely DECIMAL(12,2),
+    ai_worst_case DECIMAL(12,2),
+    ai_confidence DECIMAL(3,2), -- 0.0 to 1.0
+    
+    -- Rep forecasts
+    rep_forecast DECIMAL(12,2),
+    manager_forecast DECIMAL(12,2),
+    
+    -- Actuals (filled later)
+    actual_revenue DECIMAL(12,2),
+    
+    -- AI Analysis
+    ai_assumptions JSONB DEFAULT '[]',
+    ai_risks JSONB DEFAULT '[]',
+    ai_opportunities JSONB DEFAULT '[]',
+    
+    generated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ==================
+-- INDEXES
+-- ==================
+
+CREATE INDEX idx_contacts_org ON contacts(org_id);
+CREATE INDEX idx_contacts_company ON contacts(company_id);
+CREATE INDEX idx_contacts_owner ON contacts(owner_id);
+CREATE INDEX idx_contacts_email ON contacts(normalized_email);
+CREATE INDEX idx_companies_org ON companies(org_id);
+CREATE INDEX idx_deals_org ON deals(org_id);
+CREATE INDEX idx_deals_stage ON deals(stage_id);
+CREATE INDEX idx_deals_owner ON deals(owner_id);
+CREATE INDEX idx_deals_company ON deals(company_id);
+CREATE INDEX idx_deals_status ON deals(status);
+CREATE INDEX idx_activities_org ON activities(org_id);
+CREATE INDEX idx_activities_deal ON activities(deal_id);
+CREATE INDEX idx_activities_contact ON activities(contact_id);
+CREATE INDEX idx_activities_date ON activities(activity_date);
+CREATE INDEX idx_health_service ON system_health(service_name, recorded_at);
+CREATE INDEX idx_incidents_status ON incidents(status, severity);
+
+-- Full text search
+CREATE INDEX idx_contacts_search ON contacts USING gin(
+    to_tsvector('english', coalesce(first_name,'') || ' ' || 
+    coalesce(last_name,'') || ' ' || coalesce(email,'') || ' ' || 
+    coalesce(title,''))
+);
+
+CREATE INDEX idx_companies_search ON companies USING gin(
+    to_tsvector('english', coalesce(name,'') || ' ' || 
+    coalesce(domain,'') || ' ' || coalesce(industry,''))
+);
+
+-- ==================
+-- ROW LEVEL SECURITY
+-- ==================
+
+ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
+
+-- Users can only see their org's data
+CREATE POLICY "org_isolation" ON contacts
+    FOR ALL USING (org_id = current_setting('app.current_org')::uuid);

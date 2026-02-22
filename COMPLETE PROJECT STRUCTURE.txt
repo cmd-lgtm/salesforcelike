@@ -1,0 +1,144 @@
+COMPLETE PROJECT STRUCTURE 
+nexuscrm/
+│
+├── services/
+│   │
+│   ├── ai-engine/                           # Core AI Service
+│   │   ├── main.py
+│   │   ├── agents/
+│   │   │   ├── sales_agent.py               # Autonomous deal manager
+│   │   │   ├── email_agent.py               # Email writing agent
+│   │   │   ├── research_agent.py            # Lead research agent
+│   │   │   ├── meeting_agent.py             # Call copilot agent
+│   │   │   ├── forecast_agent.py            # Revenue prediction
+│   │   │   ├── coaching_agent.py            # Rep coaching
+│   │   │   ├── workflow_agent.py            # Automation builder
+│   │   │   └── data_quality_agent.py        # Data guardian
+│   │   ├── nlq/
+│   │   │   ├── query_engine.py              # Natural language queries
+│   │   │   ├── intent_classifier.py         # Intent detection
+│   │   │   └── sql_generator.py             # NL to SQL
+│   │   ├── models/
+│   │   │   ├── deal_scorer.py               # Deal probability model
+│   │   │   ├── churn_predictor.py           # Churn prediction
+│   │   │   ├── lead_scorer.py               # Lead scoring
+│   │   │   └── sentiment_analyzer.py        # Communication sentiment
+│   │   ├── prompts/
+│   │   │   ├── sales_prompts.py
+│   │   │   ├── email_prompts.py
+│   │   │   ├── analysis_prompts.py
+│   │   │   └── coaching_prompts.py
+│   │   └── requirements.txt
+│   │
+│   ├── crm-core/                            # Core CRM Service
+│   │   ├── main.py
+│   │   ├── routers/
+│   │   │   ├── contacts.py
+│   │   │   ├── companies.py
+│   │   │   ├── deals.py
+│   │   │   ├── activities.py
+│   │   │   ├── pipelines.py
+│   │   │   ├── tasks.py
+│   │   │   ├── notes.py
+│   │   │   └── custom_fields.py
+│   │   ├── models/
+│   │   │   ├── contact.py
+│   │   │   ├── company.py
+│   │   │   ├── deal.py
+│   │   │   └── activity.py
+│   │   └── services/
+│   │       ├── pipeline_service.py
+│   │       ├── assignment_service.py
+│   │       └── territory_service.py
+│   │
+│   ├── self-healing/                        # Self-Healing Engine
+│   │   ├── main.py
+│   │   ├── monitors/
+│   │   │   ├── health_monitor.py            # Service health checks
+│   │   │   ├── performance_monitor.py       # Latency/throughput
+│   │   │   ├── error_monitor.py             # Error rate tracking
+│   │   │   ├── database_monitor.py          # DB health
+│   │   │   ├── api_monitor.py               # External API health
+│   │   │   └── security_monitor.py          # Security threats
+│   │   ├── diagnosers/
+│   │   │   ├── error_diagnoser.py           # Root cause analysis
+│   │   │   ├── performance_diagnoser.py     # Slow query detection
+│   │   │   └── anomaly_detector.py          # AI anomaly detection
+│   │   ├── healers/
+│   │   │   ├── service_healer.py            # Auto-restart services
+│   │   │   ├── code_healer.py              # Auto-fix code bugs
+│   │   │   ├── database_healer.py           # Fix DB issues
+│   │   │   ├── integration_healer.py        # Fix broken APIs
+│   │   │   ├── scaling_healer.py            # Auto-scale
+│   │   │   └── security_healer.py           # Patch vulnerabilities
+│   │   ├── learners/
+│   │   │   ├── incident_learner.py          # Learn from incidents
+│   │   │   └── optimization_learner.py      # Self-optimize
+│   │   └── dashboard/
+│   │       └── health_dashboard.py          # System vitals
+│   │
+│   ├── email-intelligence/                  # Email Service
+│   │   ├── main.py
+│   │   ├── composer.py                      # AI email writing
+│   │   ├── analyzer.py                      # Email analysis
+│   │   ├── sequencer.py                     # Auto sequences
+│   │   └── tracker.py                       # Open/click tracking
+│   │
+│   ├── meeting-copilot/                     # Meeting AI
+│   │   ├── main.py
+│   │   ├── transcriber.py                   # Real-time transcription
+│   │   ├── coach.py                         # Live coaching
+│   │   ├── analyzer.py                      # Call analysis
+│   │   └── summarizer.py                    # Auto summaries
+│   │
+│   ├── enrichment/                          # Data Enrichment
+│   │   ├── main.py
+│   │   ├── company_enricher.py
+│   │   ├── contact_enricher.py
+│   │   ├── news_tracker.py
+│   │   └── intent_detector.py
+│   │
+│   └── workflow-automator/                  # AI Workflows
+│       ├── main.py
+│       ├── nl_parser.py                     # Natural language to rules
+│       ├── rule_engine.py                   # Rule execution
+│       ├── optimizer.py                     # Self-optimizing rules
+│       └── templates.py                     # Common automations
+│
+├── frontend/
+│   ├── app/
+│   │   ├── page.tsx                         # Landing page
+│   │   ├── (auth)/
+│   │   ├── (dashboard)/
+│   │   │   ├── dashboard/page.tsx           # AI-powered home
+│   │   │   ├── contacts/page.tsx
+│   │   │   ├── companies/page.tsx
+│   │   │   ├── deals/page.tsx
+│   │   │   ├── pipeline/page.tsx
+│   │   │   ├── ai-assistant/page.tsx        # Natural language
+│   │   │   ├── meetings/page.tsx
+│   │   │   ├── emails/page.tsx
+│   │   │   ├── reports/page.tsx
+│   │   │   ├── automations/page.tsx
+│   │   │   ├── health/page.tsx              # Self-healing dashboard
+│   │   │   └── settings/page.tsx
+│   │   └── api/
+│   └── components/
+│       ├── AICommandBar.tsx                 # Cmd+K AI command
+│       ├── DealBoard.tsx                    # Kanban pipeline
+│       ├── ContactTimeline.tsx
+│       ├── AIInsightCard.tsx
+│       ├── HealthDashboard.tsx
+│       ├── MeetingCopilot.tsx
+│       └── NaturalLanguageBar.tsx
+│
+├── supabase/
+│   └── schema.sql
+│
+├── docker-compose.yml
+├── kubernetes/
+│   ├── deployment.yaml
+│   └── services.yaml
+└── .github/
+    └── workflows/
+        └── ci-cd.yml
