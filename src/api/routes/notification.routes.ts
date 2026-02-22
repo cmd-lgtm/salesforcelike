@@ -3,6 +3,7 @@ import * as notificationService from '../../services/notification.service';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/rbac.middleware';
 import { Permission } from '../../core/rbac/types';
+import { prisma } from '../../config/database';
 
 const router = Router();
 
@@ -178,8 +179,5 @@ router.put('/preferences', requireNotificationRead, async (req: Request, res: Re
         next(error);
     }
 });
-
-// Import prisma for the route
-import { prisma } from '../../config/database';
 
 export default router;

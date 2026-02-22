@@ -134,7 +134,9 @@ export async function deleteAutomation(orgId: string, automationId: string) {
 // ============================================
 
 export async function executeAutomation(automationId: string, context: any) {
-    const automation = await prisma.automation.findById(automationId);
+    const automation = await prisma.automation.findUnique({
+        where: { id: automationId },
+    });
 
     if (!automation || !automation.isActive) {
         return { executed: false, reason: 'Automation not found or inactive' };
