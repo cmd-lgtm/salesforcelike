@@ -80,7 +80,7 @@ router.get('/', requireOpportunityRead, async (req: Request, res: Response, next
 // ============================================
 router.get('/kanban', requireOpportunityRead, async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { ownerId, closeDateFrom, closeDateTo } = req.query;
+        const { ownerId, closeDateFrom, closeDateTo, stagePage, stageLimit } = req.query;
 
         const result = await opportunityService.getKanbanBoard(
             req.user!.orgId,
@@ -90,6 +90,8 @@ router.get('/kanban', requireOpportunityRead, async (req: Request, res: Response
                 ownerId: ownerId as string | undefined,
                 closeDateFrom: closeDateFrom as string | undefined,
                 closeDateTo: closeDateTo as string | undefined,
+                stagePage: stagePage ? parseInt(stagePage as string, 10) : 1,
+                stageLimit: stageLimit ? Math.min(parseInt(stageLimit as string, 10), 100) : 50,
             }
         );
 
