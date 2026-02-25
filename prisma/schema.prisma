@@ -112,6 +112,8 @@ model User {
   @@unique([orgId, email])
   @@index([orgId])
   @@index([email])
+  @@index([isActive])                  // For login queries
+  @@index([orgId, isActive])          // For active users by org
 }
 
 // Session tokens for refresh token rotation
@@ -184,8 +186,13 @@ model Lead {
   @@index([status])
   @@index([converted])
   @@index([createdAt])
+  @@index([source])
+  // Composite indexes for query patterns
   @@index([orgId, status, createdAt])
   @@index([orgId, email])
+  @@index([orgId, ownerId, status])        // For rep lead performance
+  @@index([orgId, converted, createdAt])   // For converted leads analytics
+  @@index([company])                        // For lead search
 }
 
 // Accounts (Companies)
@@ -225,6 +232,10 @@ model Account {
   @@index([ownerId])
   @@index([industry])
   @@index([name])
+  @@index([website])
+  @@index([orgId, industry])
+  @@index([orgId, ownerId])                  // For accounts by owner
+  @@index([orgId, industry, annualRevenue])   // For industry analytics
 }
 
 // Contacts (People)
@@ -252,6 +263,9 @@ model Contact {
   @@index([ownerId])
   @@index([accountId])
   @@index([email])
+  @@index([orgId, ownerId])              // For contacts by owner
+  @@index([orgId, accountId])            // For account contacts
+  @@index([lastName, firstName])         // For name search
 }
 
 // Opportunities (Deals)
@@ -295,12 +309,17 @@ model Opportunity {
   @@index([orgId])
   @@index([ownerId])
   @@index([accountId])
+  @@index([contactId])
   @@index([stage])
   @@index([closeDate])
+  @@index([probability])
   // Composite indexes for common query patterns at scale
   @@index([orgId, stage, closeDate])
   @@index([orgId, ownerId, stage])
   @@index([orgId, accountId, stage])
+  @@index([orgId, stage, createdAt])       // For analytics by stage over time
+  @@index([orgId, ownerId, createdAt])     // For rep performance queries
+  @@index([stage, closeDate])              // For pipeline analytics
 }
 
 // ============================================
@@ -360,9 +379,13 @@ model Activity {
   @@index([ownerId])
   @@index([relatedToType, relatedToId])
   @@index([activityDate])
+  @@index([type])
   // Composite indexes for activity queries at scale
   @@index([orgId, ownerId, activityDate])
   @@index([orgId, relatedToType, activityDate])
+  @@index([orgId, type, activityDate])       // For activity type analytics
+  @@index([ownerId, activityDate])           // For user activity timeline
+  @@index([orgId, ownerId, type])            // For user activity by type
 }
 
 model Task {
@@ -390,9 +413,12 @@ model Task {
   @@index([relatedToType, relatedToId])
   @@index([dueDate])
   @@index([status])
+  @@index([priority])
   // Composite indexes for task queries at scale
   @@index([orgId, ownerId, status])
   @@index([orgId, dueDate, status])
+  @@index([ownerId, status])               // For my tasks by status
+  @@index([orgId, priority, dueDate])       // For urgent tasks queries
 }
 
 // ============================================
@@ -1065,6 +1091,10 @@ model BillingRecord {
   createdAt       DateTime         @default(now())
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 // ============================================
@@ -1146,11 +1176,4 @@ model NotificationPreferences {
   user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, userId])
-}
-
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@index([orgId])
-  @@index([eventType])
-  @@index([createdAt])
 }
