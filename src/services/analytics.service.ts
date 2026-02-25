@@ -1,6 +1,7 @@
 import { prisma } from '../config/database';
 import { logger } from '../shared/logger';
 import { NotFoundError } from '../shared/errors/not-found.error';
+import { cacheService, CACHE_TTL } from '../shared/cache';
 
 // OpportunityStage enum (matching Prisma schema)
 export const OpportunityStage = {
@@ -119,10 +120,54 @@ export async function updateForecast(orgId: string, forecastId: string, data: Up
 }
 
 // ============================================
-// ANALYTICS DASHBOARD
+// ANALYTICS DASHBOARD (with caching)
 // ============================================
 
-export async function getDashboardMetrics(orgId: string, startDate?: Date, endDate?: Date) {
+// Define return type interfaces for caching
+interface DashboardMetrics {
+    opportunities: {
+        total: number;
+        open: number;
+        won: number;
+        lost: number;
+        winRate: number;
+    };
+    revenue: {
+        total: number;
+        pipeline: number;
+    };
+    activities: {
+        total: number;
+        meetingsThisWeek: number;
+        tasksCompleted: number;
+    };
+}
+
+interface PipelineAnalytics {
+    [stage: string]: { count: number; value: number; weighted: number };
+}
+
+interface RepPerformanceItem {
+    user: { id: string; name: string; email: string };
+    opportunities: number;
+    won: number;
+    winRate: number;
+    wonValue: number;
+    pipelineValue: number;
+    activities: number;
+}
+
+export async function getDashboardMetrics(orgId: string, startDate?: Date, endDate?: Date): Promise<DashboardMetrics> {
+    // Build cache key based on filters
+    const cacheKey = `analytics:dashboard:${orgId}:${startDate?.getTime() || 'none'}:${endDate?.getTime() || 'none'}`;
+
+    // Try to get from cache first (short TTL = 1 minute)
+    const cached = await cacheService.get<DashboardMetrics>(cacheKey);
+    if (cached) {
+        logger.debug(`Dashboard metrics cache hit for org ${orgId}`);
+        return cached;
+    }
+
     const dateFilter: any = {};
     if (startDate) dateFilter.gte = startDate;
     if (endDate) dateFilter.lte = endDate;
@@ -167,7 +212,7 @@ export async function getDashboardMetrics(orgId: string, startDate?: Date, endDa
         }),
     ]);
 
-    return {
+    const result = {
         opportunities: {
             total: totalOpportunities,
             open: openOpportunities,
@@ -185,13 +230,27 @@ export async function getDashboardMetrics(orgId: string, startDate?: Date, endDa
             tasksCompleted,
         },
     };
+
+    // Cache for 1 minute ( SHORT TTL = 60s )
+    await cacheService.set(cacheKey, result, CACHE_TTL.SHORT);
+
+    return result;
 }
 
 // ============================================
-// PIPELINE ANALYTICS
+// PIPELINE ANALYTICS (with caching)
 // ============================================
 
-export async function getPipelineAnalytics(orgId: string) {
+export async function getPipelineAnalytics(orgId: string): Promise<PipelineAnalytics> {
+    const cacheKey = `analytics:pipeline:${orgId}`;
+
+    // Try cache first
+    const cached = await cacheService.get<PipelineAnalytics>(cacheKey);
+    if (cached) {
+        logger.debug(`Pipeline analytics cache hit for org ${orgId}`);
+        return cached;
+    }
+
     // Use database-side aggregation instead of loading all records into memory
     const stageAggregation = await prisma.opportunity.groupBy({
         by: ['stage'],
@@ -218,19 +277,33 @@ export async function getPipelineAnalytics(orgId: string) {
         byStage[stageData.stage] = { count, value, weighted };
     }
 
+    // Cache for 2 minutes
+    await cacheService.set(cacheKey, byStage, CACHE_TTL.SHORT * 2);
+
     return byStage;
 }
 
 // ============================================
-// SALES REP PERFORMANCE
+// SALES REP PERFORMANCE (with caching)
 // ============================================
 
-export async function getRepPerformance(orgId: string, startDate?: Date, endDate?: Date) {
+export async function getRepPerformance(orgId: string, startDate?: Date, endDate?: Date): Promise<RepPerformanceItem[]> {
+    // Build cache key
+    const cacheKey = `analytics:reps:${orgId}:${startDate?.getTime() || 'none'}:${endDate?.getTime() || 'none'}`;
+
+    // Try cache first
+    const cached = await cacheService.get<RepPerformanceItem[]>(cacheKey);
+    if (cached) {
+        logger.debug(`Rep performance cache hit for org ${orgId}`);
+        return cached;
+    }
+
+    // Build date filter once
     const dateFilter: any = {};
     if (startDate) dateFilter.gte = startDate;
     if (endDate) dateFilter.lte = endDate;
 
-    // Get all users in a single query
+    // Single query to get all users (no N+1)
     const users = await prisma.user.findMany({
         where: { orgId },
         select: { id: true, firstName: true, lastName: true, email: true },
@@ -242,89 +315,87 @@ export async function getRepPerformance(orgId: string, startDate?: Date, endDate
 
     const userIds = users.map(u => u.id);
 
-    // Batch all queries together - only 3 queries total instead of 2*N queries
-    const [opportunitiesByOwner, activitiesByOwner, wonAggregation] = await Promise.all([
-        // Get all opportunities grouped by owner in one query
-        prisma.opportunity.groupBy({
-            by: ['ownerId', 'stage'],
-            where: {
-                ownerId: { in: userIds },
-                ...(startDate || endDate ? { createdAt: dateFilter } : {}),
-            },
-            _count: { id: true },
-            _sum: { amount: true },
-        }),
-        // Get activity counts grouped by owner in one query
-        prisma.activity.groupBy({
-            by: ['ownerId'],
-            where: {
-                ownerId: { in: userIds },
-                ...(startDate || endDate ? { createdAt: dateFilter } : {}),
-            },
-            _count: { id: true },
-        }),
-        // Get won opportunities total value per owner
-        prisma.opportunity.groupBy({
-            by: ['ownerId'],
-            where: {
-                ownerId: { in: userIds },
-                stage: OpportunityStage.CLOSED_WON,
-                ...(startDate || endDate ? { closeDate: dateFilter } : {}),
-            },
-            _sum: { amount: true },
-        }),
-    ]);
+    // Batch fetch all opportunities in ONE query with aggregation
+    const opportunityAggregation = await prisma.opportunity.groupBy({
+        by: ['ownerId', 'stage'],
+        where: {
+            ownerId: { in: userIds },
+            ...(startDate || endDate ? { createdAt: dateFilter } : {}),
+        },
+        _count: { id: true },
+        _sum: { amount: true },
+    });
 
-    // Pre-compute maps for O(1) lookups
-    const oppMap = new Map<string, { total: number; won: number; wonValue: number; pipelineValue: number }>();
-    const activityMap = new Map<string, number>();
-    const wonValueMap = new Map<string, number>();
+    // Batch fetch all activities in ONE query
+    const activityCounts = await prisma.activity.groupBy({
+        by: ['ownerId'],
+        where: {
+            ownerId: { in: userIds },
+            ...(startDate || endDate ? { createdAt: dateFilter } : {}),
+        },
+        _count: { id: true },
+    });
 
-    // Process opportunities
-    for (const opp of opportunitiesByOwner) {
-        const ownerId = opp.ownerId;
-        if (!oppMap.has(ownerId)) {
-            oppMap.set(ownerId, { total: 0, won: 0, wonValue: 0, pipelineValue: 0 });
+    // Create lookup maps for O(1) access
+    const activityByOwner = new Map(activityCounts.map(a => [a.ownerId, a._count.id]));
+    const opportunitiesByOwner = new Map<string, typeof opportunityAggregation>();
+
+    for (const agg of opportunityAggregation) {
+        if (!opportunitiesByOwner.has(agg.ownerId)) {
+            opportunitiesByOwner.set(agg.ownerId, []);
         }
-        const entry = oppMap.get(ownerId)!;
-        entry.total += opp._count.id;
-
-        const amount = opp._sum.amount ? Number(opp._sum.amount) : 0;
-
-        if (opp.stage === OpportunityStage.CLOSED_WON) {
-            entry.won += opp._count.id;
-            entry.wonValue += amount;
-        } else if (opp.stage !== OpportunityStage.CLOSED_LOST) {
-            entry.pipelineValue += amount;
-        }
+        opportunitiesByOwner.get(agg.ownerId)!.push(agg);
     }
 
-    // Process activities
-    for (const act of activitiesByOwner) {
-        activityMap.set(act.ownerId, act._count.id);
-    }
-
-    // Process won values
-    for (const won of wonAggregation) {
-        wonValueMap.set(won.ownerId, won._sum.amount ? Number(won._sum.amount) : 0);
-    }
-
-    // Build final result - O(N) instead of O(N*M)
+    // Build result in memory (fast - no additional DB calls)
     const repPerformance = users.map(user => {
-        const opps = oppMap.get(user.id) || { total: 0, won: 0, wonValue: 0, pipelineValue: 0 };
-        const activities = activityMap.get(user.id) || 0;
-        const wonValue = wonValueMap.get(user.id) || opps.wonValue;
+        const userOpps = opportunitiesByOwner.get(user.id) || [];
+        const activityCount = activityByOwner.get(user.id) || 0;
+
+        // Calculate metrics from aggregated data
+        let won = 0;
+        let wonValue = 0;
+        let pipelineValue = 0;
+        let total = 0;
+
+        for (const agg of userOpps) {
+            const count = agg._count.id;
+            const value = agg._sum.amount ? Number(agg._sum.amount) : 0;
+            total += count;
+
+            if (agg.stage === OpportunityStage.CLOSED_WON) {
+                won += count;
+                wonValue += value;
+            } else if (agg.stage !== OpportunityStage.CLOSED_LOST) {
+                pipelineValue += value;
+            }
+        }
 
         return {
             user: { id: user.id, name: `${user.firstName} ${user.lastName}`, email: user.email },
-            opportunities: opps.total,
-            won: opps.won,
-            winRate: opps.total > 0 ? (opps.won / opps.total) * 100 : 0,
+            opportunities: total,
+            won,
+            winRate: total > 0 ? (won / total) * 100 : 0,
             wonValue,
-            pipelineValue: opps.pipelineValue,
-            activities,
+            pipelineValue,
+            activities: activityCount,
         };
     });
 
+    // Cache for 2 minutes
+    await cacheService.set(cacheKey, repPerformance, CACHE_TTL.SHORT * 2);
+
     return repPerformance;
+}
+
+// ============================================
+// CACHE INVALIDATION (call when data changes)
+// ============================================
+
+export async function invalidateAnalyticsCache(orgId: string): Promise<void> {
+    // Invalidate all analytics cache for this organization
+    await cacheService.deletePattern(`analytics:dashboard:${orgId}:*`);
+    await cacheService.deletePattern(`analytics:pipeline:${orgId}`);
+    await cacheService.deletePattern(`analytics:reps:${orgId}:*`);
+    logger.info(`Analytics cache invalidated for org ${orgId}`);
 }

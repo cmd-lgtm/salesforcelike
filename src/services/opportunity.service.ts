@@ -3,7 +3,7 @@ import { logger } from '../shared/logger';
 import { ValidationError } from '../shared/errors/validation.error';
 import { NotFoundError } from '../shared/errors/not-found.error';
 import { OpportunityStage, Role, AuditAction, AuditOutcome, Prisma } from '@prisma/client';
-import { cacheService, CACHE_KEYS } from '../shared/cache';
+import { cacheService, CACHE_KEYS, CACHE_TTL } from '../shared/cache';
 
 // ============================================
 // TYPES & INTERFACES
