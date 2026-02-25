@@ -1,6 +1,5 @@
 import { prisma } from '../config/database';
 import { logger } from '../shared/logger';
-import { NotFoundError } from '../shared/errors/not-found.error';
 
 // ============================================
 // NOTIFICATION SERVICE
@@ -48,6 +47,39 @@ export interface NotificationPreferences {
     leadAlerts: boolean;
     systemAlerts: boolean;
     weeklyDigest: boolean;
+}
+
+// Map to Prisma schema field names
+function toPrismaPrefs(prefs: Partial<NotificationPreferences>): any {
+    return {
+        emailEnabled: prefs.email ?? true,
+        smsEnabled: prefs.sms ?? false,
+        pushEnabled: prefs.push ?? true,
+        slackEnabled: prefs.slack ?? false,
+        inAppEnabled: prefs.inApp ?? true,
+        dealUpdatesEnabled: prefs.dealUpdates ?? true,
+        taskRemindersEnabled: prefs.taskReminders ?? true,
+        meetingRemindersEnabled: prefs.meetingReminders ?? true,
+        leadAlertsEnabled: prefs.leadAlerts ?? true,
+        systemAlertsEnabled: prefs.systemAlerts ?? true,
+        weeklyDigestEnabled: prefs.weeklyDigest ?? false,
+    };
+}
+
+function fromPrismaPrefs(prismaPrefs: any): NotificationPreferences {
+    return {
+        email: prismaPrefs.emailEnabled,
+        sms: prismaPrefs.smsEnabled,
+        push: prismaPrefs.pushEnabled,
+        slack: prismaPrefs.slackEnabled,
+        inApp: prismaPrefs.inAppEnabled,
+        dealUpdates: prismaPrefs.dealUpdatesEnabled,
+        taskReminders: prismaPrefs.taskRemindersEnabled,
+        meetingReminders: prismaPrefs.meetingRemindersEnabled,
+        leadAlerts: prismaPrefs.leadAlertsEnabled,
+        systemAlerts: prismaPrefs.systemAlertsEnabled,
+        weeklyDigest: prismaPrefs.weeklyDigestEnabled,
+    };
 }
 
 // ============================================
@@ -203,12 +235,12 @@ async function sendInAppNotification(orgId: string, data: SendNotificationDto) {
 // NOTIFICATION PREFERENCES
 // ============================================
 
-export async function getNotificationPreferences(orgId: string, userId: string) {
-    const prefs = await prisma.notificationPreferences.findFirst({
+export async function getNotificationPreferences(orgId: string, userId: string): Promise<NotificationPreferences> {
+    const prismaPrefs = await prisma.notificationPreferences.findFirst({
         where: { orgId, userId },
     });
 
-    return prefs || getDefaultPreferences();
+    return prismaPrefs ? fromPrismaPrefs(prismaPrefs) : getDefaultPreferences();
 }
 
 export async function updateNotificationPreferences(
@@ -216,14 +248,14 @@ export async function updateNotificationPreferences(
     userId: string,
     updates: Partial<NotificationPreferences>
 ) {
-    const prefs = await prisma.notificationPreferences.findFirst({
+    const prismaPrefs = await prisma.notificationPreferences.findFirst({
         where: { orgId, userId },
     });
 
-    if (prefs) {
+    if (prismaPrefs) {
         return await prisma.notificationPreferences.update({
-            where: { id: prefs.id },
-            data: updates,
+            where: { id: prismaPrefs.id },
+            data: toPrismaPrefs(updates) as any,
         });
     }
 
@@ -232,8 +264,8 @@ export async function updateNotificationPreferences(
         data: {
             orgId,
             userId,
-            ...getDefaultPreferences(),
-            ...updates,
+            ...toPrismaPrefs(getDefaultPreferences()),
+            ...toPrismaPrefs(updates),
         },
     });
 }
@@ -265,11 +297,15 @@ export async function notifyDealStageChange(
     newStage: string,
     ownerId: string
 ) {
-    const deal = await prisma.opportunity.findById(dealId);
+    const deal = await prisma.opportunity.findUnique({
+        where: { id: dealId },
+    });
 
     if (!deal) return;
 
-    const owner = await prisma.user.findById(ownerId);
+    const owner = await prisma.user.findUnique({
+        where: { id: ownerId },
+    });
 
     if (!owner?.email) return;
 
@@ -290,17 +326,21 @@ export async function notifyTaskDue(
     taskId: string,
     userId: string
 ) {
-    const task = await prisma.task.findById(taskId);
+    const task = await prisma.task.findUnique({
+        where: { id: taskId },
+    });
 
     if (!task) return;
 
-    const user = await prisma.user.findById(userId);
+    const owner = await prisma.user.findUnique({
+        where: { id: userId },
+    });
 
-    if (!user?.email) return;
+    if (!owner?.email) return;
 
     return await sendNotification(orgId, {
         userId,
-        email: user.email,
+        email: owner.email,
         title: `Task Due: ${task.subject}`,
         message: `Task "${task.subject}" is due soon.`,
         channels: ['EMAIL', 'IN_APP'],
@@ -316,17 +356,21 @@ export async function notifyMeetingReminder(
     userId: string,
     minutesBefore: number
 ) {
-    const meeting = await prisma.meeting.findById(meetingId);
+    const meeting = await prisma.meeting.findUnique({
+        where: { id: meetingId },
+    });
 
     if (!meeting) return;
 
-    const user = await prisma.user.findById(userId);
+    const owner = await prisma.user.findUnique({
+        where: { id: userId },
+    });
 
-    if (!user?.email) return;
+    if (!owner?.email) return;
 
     return await sendNotification(orgId, {
         userId,
-        email: user.email,
+        email: owner.email,
         title: `Meeting in ${minutesBefore} minutes: ${meeting.title}`,
         message: `Your meeting "${meeting.title}" starts soon.`,
         channels: ['EMAIL', 'IN_APP'],
@@ -342,19 +386,23 @@ export async function notifyLeadAssigned(
     leadId: string,
     assignedToId: string
 ) {
-    const lead = await prisma.lead.findById(leadId);
+    const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+    });
 
     if (!lead) return;
 
-    const user = await prisma.user.findById(assignedToId);
+    const user = await prisma.user.findUnique({
+        where: { id: assignedToId },
+    });
 
     if (!user?.email) return;
 
     return await sendNotification(orgId, {
         userId: assignedToId,
         email: user.email,
-        title: `New Lead Assigned: ${lead.name}`,
-        message: `You've been assigned a new lead: ${lead.name}`,
+        title: `New Lead Assigned: ${lead.firstName} ${lead.lastName}`,
+        message: `You've been assigned a new lead: ${lead.firstName} ${lead.lastName} from ${lead.company}`,
         channels: ['EMAIL', 'IN_APP'],
         priority: 'MEDIUM',
         entityType: 'LEAD',

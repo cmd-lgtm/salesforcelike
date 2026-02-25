@@ -133,7 +133,7 @@ export async function deleteAutomation(orgId: string, automationId: string) {
 // TRIGGER EXECUTION
 // ============================================
 
-export async function executeAutomation(automationId: string, context: any) {
+export async function executeAutomation(automationId: string, _context: any) {
     const automation = await prisma.automation.findUnique({
         where: { id: automationId },
     });
@@ -192,7 +192,7 @@ export async function executeAutomation(automationId: string, context: any) {
 // NATURAL LANGUAGE PARSING
 // ============================================
 
-export async function parseAutomationFromNL(orgId: string, nlText: string) {
+export async function parseAutomationFromNL(_orgId: string, _nlText: string) {
     // This would use AI to parse natural language into automation rules
     // For now, return a mock parsed result
 

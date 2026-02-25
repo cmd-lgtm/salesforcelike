@@ -199,6 +199,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
         Permission.EMAIL_READ,
         Permission.EMAIL_SEND,
         Permission.NOTIFICATION_READ,
+        Permission.ANALYTICS_READ,
     ],
 
     [Role.READ_ONLY]: [

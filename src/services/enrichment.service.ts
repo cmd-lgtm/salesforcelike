@@ -1,7 +1,273 @@
+// ============================================
+// ENRICHMENT SERVICE
+// Auto-enriches company and contact data
+// ============================================
+
 import { prisma } from '../config/database';
 import { logger } from '../shared/logger';
 import { NotFoundError } from '../shared/errors/not-found.error';
-import { ValidationError } from '../shared/errors/validation.error';
+
+export interface EnrichmentData {
+    // Company data
+    companyName?: string;
+    companySize?: string;
+    companyRevenue?: string;
+    industry?: string;
+    website?: string;
+    LinkedInUrl?: string;
+    techStack?: string[];
+    fundingInfo?: string;
+
+    // Contact data
+    firstName?: string;
+    lastName?: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    LinkedInProfile?: string;
+
+    // Signals
+    recentNews?: string[];
+    hiringSignals?: string[];
+    intentSignals?: string[];
+}
+
+export interface EnrichRequest {
+    type: 'company' | 'contact';
+    identifier: string; // domain or email
+    data?: Partial<EnrichmentData>;
+}
 
 // ============================================
-// ENRICHMENT SERVICE\n// Auto-enriches company and contact data\n// ============================================\n\nexport interface EnrichmentData {\n    // Company data\n    companyName?: string;\n    companySize?: string;\n    companyRevenue?: string;\n    industry?: string;\n    website?: string;\n    LinkedInUrl?: string;\n    techStack?: string[];\n    fundingInfo?: string;\n    \n    // Contact data\n    firstName?: string;\n    lastName?: string;\n    title?: string;\n    email?: string;\n    phone?: string;\n    LinkedInProfile?: string;\n    \n    // Signals\n    recentNews?: string[];\n    hiringSignals?: string[];\n    intentSignals?: string[];\n}\n\nexport interface EnrichRequest {\n    type: 'company' | 'contact';\n    identifier: string; // domain or email\n    data?: Partial<EnrichmentData>;\n}\n\n// ============================================\n// ENRICHMENT FUNCTIONS\n// ============================================\n\n/**\n * Enrich company data from external sources\n * In production, this would integrate with services like:\n * - Clearbit\n * - ZoomInfo\n * - Apollo\n * - LinkedIn Sales Navigator\n */\nexport async function enrichCompany(orgId: string, domain: string): Promise<EnrichmentData> {\n    logger.info('Enriching company data', { orgId, domain });\n    \n    // Mock enrichment data - in production, call external API\n    const enrichedData: EnrichmentData = {\n        companyName: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),\n        companySize: '100-500',\n        companyRevenue: '$10M-$50M',\n        industry: 'Technology',\n        website: `https://${domain}`,\n        LinkedInUrl: `https://linkedin.com/company/${domain.split('.')[0]}`,\n        techStack: ['React', 'Node.js', 'PostgreSQL', 'AWS'],\n        fundingInfo: 'Series B, $25M',\n        recentNews: [\n            'Opened new office in Austin, TX',\n            'Hired VP of Sales',\n            'Announced partnership with major tech company',\n        ],\n        hiringSignals: [\n            'Hiring 10+ sales reps',\n            'Looking for VP of Engineering',\n        ],\n        intentSignals: [\n            'Recently visited pricing page',\n            'Downloaded whitepaper',\n        ],\n    };\n\n    return enrichedData;\n}\n\n/**\n * Enrich contact data from external sources\n */\nexport async function enrichContact(orgId: string, email: string): Promise<EnrichmentData> {\n    logger.info('Enriching contact data', { orgId, email });\n    \n    const domain = email.split('@')[1];\n    const firstName = email.split('@')[0].split('.')[0];\n    const lastName = email.split('@')[0].split('.')[1] || '';\n\n    // Mock enrichment data\n    const enrichedData: EnrichmentData = {\n        firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),\n        lastName: lastName.charAt(0).toUpperCase() + lastName.slice(1),\n        title: 'Director of Operations',\n        email,\n        phone: '+1 (555) 123-4567',\n        LinkedInProfile: `https://linkedin.com/in/${firstName}-${lastName}`,\n    };\n\n    return enrichedData;\n}\n\n/**\n * Auto-enrich a company from the database\n */\nexport async function autoEnrichCompany(orgId: string, companyId: string) {\n    const company = await prisma.account.findFirst({\n        where: { id: companyId, orgId },\n    });\n\n    if (!company) {\n        throw new NotFoundError('Company not found');\n    }\n\n    const domain = company.domain || company.website?.replace(/^https?:\\/\\//, '') || '';\n    \n    if (!domain) {\n        throw new ValidationError('Company domain not available for enrichment');\n    }\n\n    const enrichedData = await enrichCompany(orgId, domain);\n\n    // Update company record with enriched data\n    const updated = await prisma.account.update({\n        where: { id: companyId },\n        data: {\n            // Map enrichment data to company fields\n            industry: enrichedData.industry,\n            website: enrichedData.website,\n            // Store additional enrichment data in a JSON field if available\n            metadata: {\n                ...company.metadata,\n                enriched: true,\n                enrichmentData: enrichedData,\n                enrichedAt: new Date().toISOString(),\n            },\n        },\n    });\n\n    logger.info('Company auto-enriched', { companyId, orgId });\n    return updated;\n}\n\n/**\n * Auto-enrich a contact from the database\n */\nexport async function autoEnrichContact(orgId: string, contactId: string) {\n    const contact = await prisma.contact.findFirst({\n        where: { id: contactId, orgId },\n    });\n\n    if (!contact) {\n        throw new NotFoundError('Contact not found');\n    }\n\n    if (!contact.email) {\n        throw new ValidationError('Contact email not available for enrichment');\n    }\n\n    const enrichedData = await enrichContact(orgId, contact.email);\n\n    // Update contact record with enriched data\n    const updated = await prisma.contact.update({\n        where: { id: contactId },\n        data: {\n            firstName: enrichedData.firstName || contact.firstName,\n            lastName: enrichedData.lastName || contact.lastName,\n            title: enrichedData.title || contact.title,\n            phone: enrichedData.phone || contact.phone,\n            // Store additional enrichment data\n            metadata: {\n                ...contact.metadata,\n                enriched: true,\n                enrichmentData: enrichedData,\n                enrichedAt: new Date().toISOString(),\n            },\n        },\n    });\n\n    logger.info('Contact auto-enriched', { contactId, orgId });\n    return updated;\n}\n\n/**\n * Batch enrichment for multiple records\n */\nexport async function batchEnrich(\n    orgId: string,\n    type: 'company' | 'contact',\n    ids: string[]\n) {\n    const results = {\n        success: [] as string[],\n        failed: [] as string[],\n    };\n\n    for (const id of ids) {\n        try {\n            if (type === 'company') {\n                await autoEnrichCompany(orgId, id);\n            } else {\n                await autoEnrichContact(orgId, id);\n            }\n            results.success.push(id);\n        } catch (error) {\n            logger.error('Enrichment failed', { id, type, error });\n            results.failed.push(id);\n        }\n    }\n\n    logger.info('Batch enrichment completed', { orgId, type, results });\n    return results;\n}\n\n// ============================================\n// DATA QUALITY\n// ============================================\n\n/**\n * Find duplicate contacts based on email\n */\nexport async function findDuplicateContacts(orgId: string) {\n    const contacts = await prisma.contact.findMany({\n        where: { orgId, email: { not: null } },\n        select: { id: true, email: true, firstName: true, lastName: true },\n    });\n\n    const emailMap = new Map<string, string[]>();\n    \n    for (const contact of contacts) {\n        if (contact.email) {\n            const email = contact.email.toLowerCase();\n            if (!emailMap.has(email)) {\n                emailMap.set(email, []);\n            }\n            emailMap.get(email)!.push(contact.id);\n        }\n    }\n\n    const duplicates: { email: string; contactIds: string[] }[] = [];\n    for (const [email, ids] of emailMap) {\n        if (ids.length > 1) {\n            duplicates.push({ email, contactIds: ids });\n        }\n    }\n\n    return duplicates;\n}\n\n/**\n * Merge duplicate contacts\n */\nexport async function mergeContacts(orgId: string, primaryId: string, secondaryIds: string[]) {\n    // Get all secondary contacts\n    const secondaryContacts = await prisma.contact.findMany({\n        where: { id: { in: secondaryIds }, orgId },\n    });\n\n    // Merge data into primary (take first non-null value)\n    const mergedData: any = {};\n    \n    for (const contact of [await prisma.contact.findUnique({ where: { id: primaryId } }), ...secondaryContacts]) {\n        if (contact) {\n            if (!mergedData.firstName && contact.firstName) mergedData.firstName = contact.firstName;\n            if (!mergedData.lastName && contact.lastName) mergedData.lastName = contact.lastName;\n            if (!mergedData.title && contact.title) mergedData.title = contact.title;\n            if (!mergedData.phone && contact.phone) mergedData.phone = contact.phone;\n        }\n    }\n\n    // Update primary contact\n    const updated = await prisma.contact.update({\n        where: { id: primaryId },\n        data: mergedData,\n    });\n\n    // Delete secondary contacts\n    await prisma.contact.deleteMany({\n        where: { id: { in: secondaryIds } },\n    });\n\n    logger.info('Contacts merged', { primaryId, secondaryIds, orgId });\n    return updated;\n}\n\nclass ValidationError extends Error {\n    constructor(message: string) {\n        super(message);\n        this.name = 'ValidationError';\n    }\n}\n\nexport { ValidationError };\n
+// ENRICHMENT FUNCTIONS
+// ============================================
+
+/**
+ * Enrich company data from external sources
+ * In production, this would integrate with services like:
+ * - Clearbit
+ * - ZoomInfo
+ * - Apollo
+ * - LinkedIn Sales Navigator
+ */
+export async function enrichCompany(orgId: string, domain: string): Promise<EnrichmentData> {
+    logger.info('Enriching company data', { orgId, domain });
+
+    // Mock enrichment data - in production, call external API
+    const enrichedData: EnrichmentData = {
+        companyName: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
+        companySize: '100-500',
+        companyRevenue: '$10M-$50M',
+        industry: 'Technology',
+        website: `https://${domain}`,
+        LinkedInUrl: `https://linkedin.com/company/${domain.split('.')[0]}`,
+        techStack: ['React', 'Node.js', 'PostgreSQL', 'AWS'],
+        fundingInfo: 'Series B, $25M',
+        recentNews: [
+            'Opened new office in Austin, TX',
+            'Hired VP of Sales',
+            'Announced partnership with major tech company',
+        ],
+        hiringSignals: [
+            'Hiring 10+ sales reps',
+            'Looking for VP of Engineering',
+        ],
+        intentSignals: [
+            'Recently visited pricing page',
+            'Downloaded whitepaper',
+        ],
+    };
+
+    return enrichedData;
+}
+
+/**
+ * Enrich contact data from external sources
+ */
+export async function enrichContact(orgId: string, email: string): Promise<EnrichmentData> {
+    logger.info('Enriching contact data', { orgId, email });
+
+    const firstName = email.split('@')[0].split('.')[0];
+    const lastName = email.split('@')[0].split('.')[1] || '';
+
+    // Mock enrichment data
+    const enrichedData: EnrichmentData = {
+        firstName: firstName.charAt(0).toUpperCase() + firstName.slice(1),
+        lastName: lastName.charAt(0).toUpperCase() + lastName.slice(1),
+        title: 'Director of Operations',
+        email,
+        phone: '+1 (555) 123-4567',
+        LinkedInProfile: `https://linkedin.com/in/${firstName}-${lastName}`,
+    };
+
+    return enrichedData;
+}
+
+/**
+ * Auto-enrich a company from the database
+ */
+export async function autoEnrichCompany(orgId: string, companyId: string) {
+    const company = await prisma.account.findFirst({
+        where: { id: companyId, orgId },
+    });
+
+    if (!company) {
+        throw new NotFoundError('Company not found');
+    }
+
+    const website = company.website || '';
+
+    if (!website) {
+        throw new Error('Company website not available for enrichment');
+    }
+
+    const domain = website.replace(/^https?:\/\//, '');
+    const enrichedData = await enrichCompany(orgId, domain);
+
+    // Update company record with enriched data
+    const updated = await prisma.account.update({
+        where: { id: companyId },
+        data: {
+            // Map enrichment data to company fields
+            website: enrichedData.website,
+        },
+    });
+
+    logger.info('Company auto-enriched', { companyId, orgId });
+    return updated;
+}
+
+/**
+ * Auto-enrich a contact from the database
+ */
+export async function autoEnrichContact(orgId: string, contactId: string) {
+    const contact = await prisma.contact.findFirst({
+        where: { id: contactId, orgId },
+    });
+
+    if (!contact) {
+        throw new NotFoundError('Contact not found');
+    }
+
+    if (!contact.email) {
+        throw new Error('Contact email not available for enrichment');
+    }
+
+    const enrichedData = await enrichContact(orgId, contact.email);
+
+    // Update contact record with enriched data
+    const updated = await prisma.contact.update({
+        where: { id: contactId },
+        data: {
+            firstName: enrichedData.firstName || contact.firstName,
+            lastName: enrichedData.lastName || contact.lastName,
+            title: enrichedData.title || contact.title,
+            phone: enrichedData.phone || contact.phone,
+        },
+    });
+
+    logger.info('Contact auto-enriched', { contactId, orgId });
+    return updated;
+}
+
+/**
+ * Batch enrichment for multiple records
+ */
+export async function batchEnrich(
+    orgId: string,
+    type: 'company' | 'contact',
+    ids: string[]
+) {
+    const results = {
+        success: [] as string[],
+        failed: [] as string[],
+    };
+
+    for (const id of ids) {
+        try {
+            if (type === 'company') {
+                await autoEnrichCompany(orgId, id);
+            } else {
+                await autoEnrichContact(orgId, id);
+            }
+            results.success.push(id);
+        } catch (error) {
+            logger.error('Enrichment failed', { id, type, error });
+            results.failed.push(id);
+        }
+    }
+
+    logger.info('Batch enrichment completed', { orgId, type, results });
+    return results;
+}
+
+// ============================================
+// DATA QUALITY
+// ============================================
+
+/**
+ * Find duplicate contacts based on email
+ */
+export async function findDuplicateContacts(orgId: string) {
+    const contacts = await prisma.contact.findMany({
+        where: { orgId, email: { not: null } },
+        select: { id: true, email: true, firstName: true, lastName: true },
+    });
+
+    const emailMap = new Map<string, string[]>();
+
+    for (const contact of contacts) {
+        if (contact.email) {
+            const email = contact.email.toLowerCase();
+            if (!emailMap.has(email)) {
+                emailMap.set(email, []);
+            }
+            emailMap.get(email)!.push(contact.id);
+        }
+    }
+
+    const duplicates: { email: string; contactIds: string[] }[] = [];
+    for (const [email, ids] of emailMap) {
+        if (ids.length > 1) {
+            duplicates.push({ email, contactIds: ids });
+        }
+    }
+
+    return duplicates;
+}
+
+/**
+ * Merge duplicate contacts
+ */
+export async function mergeContacts(orgId: string, primaryId: string, secondaryIds: string[]) {
+    // Get all secondary contacts
+    const secondaryContacts = await prisma.contact.findMany({
+        where: { id: { in: secondaryIds }, orgId },
+    });
+
+    // Merge data into primary (take first non-null value)
+    const mergedData: any = {};
+
+    for (const contact of [await prisma.contact.findUnique({ where: { id: primaryId } }), ...secondaryContacts]) {
+        if (contact) {
+            if (!mergedData.firstName && contact.firstName) mergedData.firstName = contact.firstName;
+            if (!mergedData.lastName && contact.lastName) mergedData.lastName = contact.lastName;
+            if (!mergedData.title && contact.title) mergedData.title = contact.title;
+            if (!mergedData.phone && contact.phone) mergedData.phone = contact.phone;
+        }
+    }
+
+    // Update primary contact
+    const updated = await prisma.contact.update({
+        where: { id: primaryId },
+        data: mergedData,
+    });
+
+    // Delete secondary contacts
+    await prisma.contact.deleteMany({
+        where: { id: { in: secondaryIds } },
+    });
+
+    logger.info('Contacts merged', { primaryId, secondaryIds, orgId });
+    return updated;
+}

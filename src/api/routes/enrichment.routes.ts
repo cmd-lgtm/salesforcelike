@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import * as enrichmentService from '../../services/enrichment.service';
+import { enrichCompany, enrichContact, autoEnrichCompany, autoEnrichContact, batchEnrich, findDuplicateContacts, mergeContacts } from '../../services/enrichment.service';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/rbac.middleware';
 import { Permission } from '../../core/rbac/types';
@@ -23,8 +23,9 @@ router.post('/company', requireEnrichmentRun, async (req: Request, res: Response
             return res.status(400).json({ success: false, error: 'Domain is required' });
         }
 
-        const data = await enrichmentService.enrichCompany(req.user!.orgId, domain);
+        const data = await enrichCompany(req.user!.orgId, domain);
         res.json({ success: true, data });
+        return;
     } catch (error) {
         next(error);
     }
@@ -39,8 +40,9 @@ router.post('/contact', requireEnrichmentRun, async (req: Request, res: Response
             return res.status(400).json({ success: false, error: 'Email is required' });
         }
 
-        const data = await enrichmentService.enrichContact(req.user!.orgId, email);
+        const data = await enrichContact(req.user!.orgId, email);
         res.json({ success: true, data });
+        return;
     } catch (error) {
         next(error);
     }
@@ -49,7 +51,7 @@ router.post('/contact', requireEnrichmentRun, async (req: Request, res: Response
 // POST /enrichment/company/:id - Auto-enrich company in database
 router.post('/company/:id', requireEnrichmentRun, async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const company = await enrichmentService.autoEnrichCompany(req.user!.orgId, req.params.id);
+        const company = await autoEnrichCompany(req.user!.orgId, req.params.id);
         res.json({ success: true, data: company });
     } catch (error) {
         next(error);
@@ -59,7 +61,7 @@ router.post('/company/:id', requireEnrichmentRun, async (req: Request, res: Resp
 // POST /enrichment/contact/:id - Auto-enrich contact in database
 router.post('/contact/:id', requireEnrichmentRun, async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const contact = await enrichmentService.autoEnrichContact(req.user!.orgId, req.params.id);
+        const contact = await autoEnrichContact(req.user!.orgId, req.params.id);
         res.json({ success: true, data: contact });
     } catch (error) {
         next(error);
@@ -75,8 +77,9 @@ router.post('/batch', requireEnrichmentRun, async (req: Request, res: Response, 
             return res.status(400).json({ success: false, error: 'Type and ids array are required' });
         }
 
-        const results = await enrichmentService.batchEnrich(req.user!.orgId, type, ids);
+        const results = await batchEnrich(req.user!.orgId, type, ids);
         res.json({ success: true, data: results });
+        return;
     } catch (error) {
         next(error);
     }
@@ -89,8 +92,9 @@ router.post('/batch', requireEnrichmentRun, async (req: Request, res: Response, 
 // GET /enrichment/duplicates - Find duplicate contacts
 router.get('/duplicates', requireEnrichmentRun, async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const duplicates = await enrichmentService.findDuplicateContacts(req.user!.orgId);
+        const duplicates = await findDuplicateContacts(req.user!.orgId);
         res.json({ success: true, data: duplicates });
+        return;
     } catch (error) {
         next(error);
     }
@@ -105,8 +109,9 @@ router.post('/merge', requireEnrichmentRun, async (req: Request, res: Response, 
             return res.status(400).json({ success: false, error: 'Primary ID and secondary IDs array are required' });
         }
 
-        const result = await enrichmentService.mergeContacts(req.user!.orgId, primaryId, secondaryIds);
+        const result = await mergeContacts(req.user!.orgId, primaryId, secondaryIds);
         res.json({ success: true, data: result });
+        return;
     } catch (error) {
         next(error);
     }

@@ -199,6 +199,10 @@ export const requireActivityCreate = requirePermission(Permission.ACTIVITY_CREAT
 export const requireActivityUpdate = requirePermission(Permission.ACTIVITY_UPDATE);
 export const requireActivityDelete = requirePermission(Permission.ACTIVITY_DELETE);
 
+// Analytics permissions
+export const requireAnalyticsRead = requirePermission(Permission.ANALYTICS_READ);
+export const requireForecastRead = requirePermission(Permission.FORECAST_READ);
+
 export default {
     requirePermission,
     requireRole,

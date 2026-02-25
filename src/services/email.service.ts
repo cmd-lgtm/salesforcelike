@@ -1,6 +1,5 @@
 import { prisma } from '../config/database';
 import { logger } from '../shared/logger';
-import { ValidationError } from '../shared/errors/validation.error';
 import { NotFoundError } from '../shared/errors/not-found.error';
 
 // Type definitions
@@ -320,7 +319,7 @@ export async function deleteSequenceStep(orgId: string, stepId: string) {
 // ============================================
 
 export async function generateEmailWithAI(
-    orgId: string,
+    _orgId: string,
     context: {
         templateType?: TemplateCategory;
         contactName?: string;

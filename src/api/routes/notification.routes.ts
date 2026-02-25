@@ -91,6 +91,7 @@ router.get('/:id', requireNotificationRead, async (req: Request, res: Response, 
         }
 
         res.json({ success: true, data: notification });
+        return;
     } catch (error) {
         next(error);
     }
@@ -113,6 +114,7 @@ router.patch('/:id/read', requireNotificationRead, async (req: Request, res: Res
         });
 
         res.json({ success: true, data: updated });
+        return;
     } catch (error) {
         next(error);
     }
